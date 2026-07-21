@@ -1,0 +1,189 @@
+@import "tailwindcss";
+
+/* Tokens shadcn sobre la paleta dataviz validada (tema oscuro único). */
+:root {
+  --background: #0d0d0d; /* plano de página */
+  --foreground: #ffffff; /* tinta primaria */
+  --card: #1a1a19; /* superficie de gráfico */
+  --card-foreground: #ffffff;
+  --popover: #212120;
+  --popover-foreground: #ffffff;
+  --primary: #3987e5;
+  --primary-foreground: #ffffff;
+  --secondary: #2c2c2a;
+  --secondary-foreground: #c3c2b7;
+  --muted: #262624;
+  --muted-foreground: #898781;
+  --accent: #2c2c2a;
+  --accent-foreground: #ffffff;
+  --destructive: #d03b3b;
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.14);
+  --ring: #3987e5;
+  --radius: 0.625rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- Grafo (D3 es dueño del interior del SVG) --- */
+.nodo {
+  cursor: pointer;
+}
+.nodo .forma {
+  transition:
+    opacity 200ms ease,
+    stroke-width 150ms ease;
+}
+.nodo .etiqueta {
+  pointer-events: none;
+  user-select: none;
+}
+.nodo.atenuado,
+.arista.atenuada {
+  opacity: 0.15;
+}
+/* Scrubber temporal: lo no vigente casi desaparece (domina sobre .atenuado) */
+.nodo.fuera-de-tiempo,
+.arista.fuera-de-tiempo {
+  opacity: 0.08;
+}
+.nodo.resaltado .forma {
+  stroke: #ffffff;
+  stroke-width: 2.5px;
+  filter: drop-shadow(0 0 7px rgba(255, 255, 255, 0.6));
+}
+/* La evidencia del chat siempre gana a la atenuación... */
+.nodo.resaltado {
+  opacity: 1;
+}
+/* ...pero si además está fuera del rango temporal, queda semivisible */
+.nodo.resaltado.fuera-de-tiempo {
+  opacity: 0.45;
+}
+.nodo:hover .forma {
+  stroke-width: 3px;
+}
+
+/* --- Línea de tiempo --- */
+.tl-el {
+  transition: opacity 200ms ease;
+}
+.tl-el.atenuado {
+  opacity: 0.15;
+}
+.tl-el.resaltado {
+  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.7));
+}
+.punto-enc {
+  cursor: pointer;
+}
+.punto-enc:hover {
+  stroke: #ffffff;
+  stroke-width: 1.5px;
+}
+.grupo-brush .overlay {
+  cursor: crosshair;
+}
+
+/* --- Markdown en las respuestas del asistente --- */
+.md > * + * {
+  margin-top: 0.5rem;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.md strong {
+  font-weight: 600;
+  color: var(--foreground);
+}
+.md ul,
+.md ol {
+  padding-left: 1.1rem;
+}
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
+.md li + li {
+  margin-top: 0.15rem;
+}
+.md code {
+  border-radius: 4px;
+  background: var(--muted);
+  padding: 0.1rem 0.3rem;
+  font-size: 0.75rem;
+}
+.md blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 0.6rem;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+.md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.45rem;
+  text-align: left;
+}
+.md th {
+  background: var(--muted);
+  font-weight: 600;
+}
+.md td {
+  font-variant-numeric: tabular-nums;
+}
+.md hr {
+  border-color: var(--border);
+}
+.md a {
+  color: var(--primary);
+  text-decoration: underline;
+}

@@ -1,0 +1,66 @@
+[2m10:19:56 AM[22m [31m[1m[vite][22m[39m [31mInternal server error: Failed to resolve import "@/grafo-layouts" from "src/componentes/GrafoPaciente.tsx". Does the file exist?[39m
+  Plugin: [35mvite:import-analysis[39m
+  File: [36mD:/dev/ehr-graph/ui/src/componentes/GrafoPaciente.tsx[39m:16:7
+[33m  26 |    calcularLayoutTemporal,
+  27 |    posicionesInicialesLibres
+  28 |  } from "@/grafo-layouts";
+     |          ^
+  29 |  import { claveLeyenda, colorNodo, estiloArista, radioNodo } from "@/paleta";
+  30 |  import { vigenteEn } from "@/tiempo";[39m
+      at TransformPluginContext._formatLog (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:42658:41)
+      at TransformPluginContext.error (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:42655:16)
+      at normalizeUrl (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:40634:23)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:40753:37
+      at async Promise.all (index 10)
+      at async TransformPluginContext.transform (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:40680:7)
+      at async EnvironmentPluginContainer.transform (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:42453:18)
+      at async loadAndTransform (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:35845:27)
+      at async viteTransformMiddleware (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:37369:24)
+[2m10:19:56 AM[22m [31m[1m[vite][22m[39m [31mInternal server error: Failed to resolve import "@/grafo-layouts" from "src/componentes/GrafoPaciente.tsx". Does the file exist?[39m
+  Plugin: [35mvite:import-analysis[39m
+  File: [36mD:/dev/ehr-graph/ui/src/componentes/GrafoPaciente.tsx[39m:16:7
+[33m  26 |    calcularLayoutTemporal,
+  27 |    posicionesInicialesLibres
+  28 |  } from "@/grafo-layouts";
+     |          ^
+  29 |  import { claveLeyenda, colorNodo, estiloArista, radioNodo } from "@/paleta";
+  30 |  import { vigenteEn } from "@/tiempo";[39m
+      at TransformPluginContext._formatLog (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:42658:41)
+      at TransformPluginContext.error (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:42655:16)
+      at normalizeUrl (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:40634:23)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:40753:37
+      at async Promise.all (index 10)
+      at async TransformPluginContext.transform (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:40680:7)
+      at async EnvironmentPluginContainer.transform (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:42453:18)
+      at async loadAndTransform (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:35845:27)
+      at async viteTransformMiddleware (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:37369:24)
+[2m10:19:57 AM[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Failed to resolve import "@/grafo-layouts" from "src/componentes/GrafoPaciente.tsx". Does the file exist?
+  Plugin: [35mvite:import-analysis[39m
+  File: [36mD:/dev/ehr-graph/ui/src/componentes/GrafoPaciente.tsx[39m:16:7
+[33m  26 |    calcularLayoutTemporal,
+  27 |    posicionesInicialesLibres
+  28 |  } from "@/grafo-layouts";
+     |          ^
+  29 |  import { claveLeyenda, colorNodo, estiloArista, radioNodo } from "@/paleta";
+  30 |  import { vigenteEn } from "@/tiempo";[39m
+[2m10:19:57 AM[22m [31m[1m[vite][22m[39m [31mInternal server error: Failed to resolve import "@/grafo-layouts" from "src/componentes/GrafoPaciente.tsx". Does the file exist?[39m
+  Plugin: [35mvite:import-analysis[39m
+  File: [36mD:/dev/ehr-graph/ui/src/componentes/GrafoPaciente.tsx[39m:16:7
+[33m  26 |    calcularLayoutTemporal,
+  27 |    posicionesInicialesLibres
+  28 |  } from "@/grafo-layouts";
+     |          ^
+  29 |  import { claveLeyenda, colorNodo, estiloArista, radioNodo } from "@/paleta";
+  30 |  import { vigenteEn } from "@/tiempo";[39m
+      at TransformPluginContext._formatLog (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:42658:41)
+      at TransformPluginContext.error (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:42655:16)
+      at normalizeUrl (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:40634:23)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:40753:37
+      at async Promise.all (index 10)
+      at async TransformPluginContext.transform (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:40680:7)
+      at async EnvironmentPluginContainer.transform (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:42453:18)
+      at async loadAndTransform (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:35845:27)
+      at async viteTransformMiddleware (file:///D:/dev/ehr-graph/ui/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:37369:24)

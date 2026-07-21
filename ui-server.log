@@ -1,0 +1,33 @@
+
+  [32m[1mVITE[22m v6.4.3[39m  [2mready in [0m[1m3897[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5173[22m/[39m
+[2m9:52:42 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/tipos.ts[22m
+[2m9:52:43 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/tipos.ts[22m
+[2m9:54:05 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mpackage.json[22m
+[2m9:54:05 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mpackage.json[22m
+[2m9:55:51 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/componentes/SelectorPaciente.tsx, /src/componentes/Leyenda.tsx, /src/componentes/PanelChat.tsx, /src/componentes/GrafoPaciente.tsx, /src/componentes/VistaTemporal.tsx[22m
+[2m9:55:51 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/componentes/Leyenda.tsx, /src/componentes/GrafoPaciente.tsx, /src/componentes/VistaTemporal.tsx, /src/componentes/SelectorPaciente.tsx, /src/componentes/PanelChat.tsx[22m
+[2m9:55:51 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/componentes/VistaTemporal.tsx, /src/index.css[22m
+[2m9:58:58 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/componentes/GrafoPaciente.tsx, /src/index.css[22m
+[2m9:59:23 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32m✨ new dependencies optimized: [33mgraphology, sigma, graphology-layout-forceatlas2/worker, sigma/rendering[32m[39m
+[2m9:59:23 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32m✨ optimized dependencies changed. reloading[39m
+[2m9:59:35 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/componentes/GrafoPaciente.tsx[22m
+[2m10:00:13 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/componentes/SelectorPaciente.tsx, /src/componentes/Leyenda.tsx, /src/componentes/PanelChat.tsx, /src/componentes/GrafoPaciente.tsx, /src/componentes/VistaTemporal.tsx[22m
+[2m10:00:14 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/componentes/GrafoPaciente.tsx, /src/index.css[22m
+[2m10:00:27 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mpackage.json[22m
+[2m10:01:00 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mpackage.json[22m
+[2m10:03:18 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/componentes/GrafoPaciente.tsx[22m
+[2m10:04:23 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/componentes/SelectorPaciente.tsx, /src/componentes/Leyenda.tsx, /src/componentes/PanelChat.tsx, /src/componentes/GrafoPaciente.tsx, /src/componentes/VistaTemporal.tsx[22m
+[2m10:19:55 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/tipos.ts[22m
+[2m10:19:55 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/componentes/SelectorPaciente.tsx, /src/componentes/Leyenda.tsx, /src/componentes/PanelChat.tsx, /src/componentes/GrafoPaciente.tsx, /src/componentes/VistaTemporal.tsx[22m
+[2m10:19:55 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/componentes/Leyenda.tsx, /src/componentes/GrafoPaciente.tsx, /src/componentes/VistaTemporal.tsx, /src/componentes/SelectorPaciente.tsx, /src/componentes/PanelChat.tsx[22m
+[2m10:19:55 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/componentes/VistaTemporal.tsx, /src/index.css[22m
+[2m10:19:55 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/componentes/SelectorPaciente.tsx, /src/componentes/Leyenda.tsx, /src/componentes/PanelChat.tsx, /src/componentes/GrafoPaciente.tsx, /src/componentes/VistaTemporal.tsx[22m
+[2m10:19:56 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/componentes/GrafoPaciente.tsx, /src/index.css[22m
+[2m10:19:56 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/grafo-layouts.test.ts[22m
+[2m10:22:10 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/index.css[22m
+[2m10:22:21 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mpackage.json[22m
+[2m10:22:28 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mpackage.json[22m
+[2m10:22:29 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mpackage.json[22m
+[2m10:22:35 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mpackage.json[22m

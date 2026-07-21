@@ -1,0 +1,7 @@
+farmaco_a,farmaco_b,severidad,descripcion
+metoprolol,nitroglycerin,moderada,Hipotension aditiva: ambos reducen la presion arterial
+lisinopril,metoprolol,moderada,Efecto hipotensor aditivo y riesgo de bradicardia
+insulin,lisinopril,moderada,Los IECA potencian el efecto hipoglucemiante de la insulina
+insulin,metoprolol,moderada,Los betabloqueantes enmascaran los sintomas de hipoglucemia
+tacrolimus,simvastatin,alta,Riesgo de miopatia/rabdomiolisis por inhibicion de CYP3A4
+lisinopril,naproxen,moderada,Los AINE reducen el efecto antihipertensivo y aumentan riesgo renal
