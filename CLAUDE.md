@@ -65,7 +65,8 @@ en **PLAN.md** — es la fuente de verdad; ante cualquier duda de diseño, gana 
   que los errores queden localizados.
 - Modelo de embeddings: paraphrase-multilingual-MiniLM-L12-v2 (384 dims) — no
   cambiar sin actualizar la dimensión del índice vectorial.
-- LLM del agente: claude-sonnet-4-6.
+- LLM del agente: configurable con `ANTHROPIC_MODEL`; producción usa
+  `claude-haiku-4-5-20251001` para limitar costo y fijar el comportamiento.
 - Comentarios y textos de cara al usuario en español; los datos Synthea vienen
   en inglés y está bien.
 

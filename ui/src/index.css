@@ -117,8 +117,49 @@ body {
   stroke: #ffffff;
   stroke-width: 1.5px;
 }
+/* --- Gantt --- */
+.gantt-barra,
+.gantt-hito,
+.gantt-item,
+.gantt-header {
+  cursor: pointer;
+}
+.gantt-barra:hover .barra,
+.gantt-hito:hover {
+  stroke: #ffffff;
+  stroke-width: 1.5px;
+}
+.gantt-header:hover .gantt-header-bg {
+  fill: rgba(255, 255, 255, 0.04);
+}
+.gantt-item:hover .nombre {
+  fill: #ffffff;
+}
+.gantt-hoy {
+  pointer-events: none;
+}
 .grupo-brush .overlay {
   cursor: crosshair;
+}
+.timeline-scroll {
+  scrollbar-color: #44443f transparent;
+  scrollbar-width: thin;
+}
+.timeline-scroll::-webkit-scrollbar {
+  width: 9px;
+}
+.timeline-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.timeline-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #44443f;
+  background-clip: padding-box;
+}
+.timeline-scroll::-webkit-scrollbar-thumb:hover {
+  background: #5a5a54;
+  background-clip: padding-box;
 }
 
 /* --- Markdown en las respuestas del asistente --- */

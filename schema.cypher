@@ -39,4 +39,8 @@ FOR (r:Prescripcion) ON (r.estado);
 CREATE INDEX cond_estado IF NOT EXISTS
 FOR (c:Condicion) ON (c.estado_clinico);
 
+// Contadores operativos de la demo pública; nunca contienen IP en claro.
+CREATE CONSTRAINT demo_usage_key IF NOT EXISTS
+FOR (u:DemoUsage) REQUIRE u.key IS UNIQUE;
+
 // El índice vectorial se crea en semantica.py (384 dimensiones, cosine).

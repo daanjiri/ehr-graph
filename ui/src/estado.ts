@@ -5,6 +5,7 @@ import { create } from "zustand";
 import {
   chatSSE,
   obtenerGrafo,
+  obtenerGrafoCompleto,
   obtenerIntervalos,
   obtenerLote,
   obtenerPacientes,
@@ -21,6 +22,8 @@ interface EstadoApp {
   nodos: NodoGrafo[];
   aristas: Arista[];
   versionGrafo: number; // bump -> GrafoPaciente re-hace el join de D3
+  grafoCompleto: boolean; // true tras "desplegar todo"
+  idsNucleo: Set<string>; // ids del nucleo clinico inicial (para compactar)
   resaltados: Set<string>;
   tiposOcultos: Set<string>;
   mensajes: Mensaje[];
@@ -28,25 +31,82 @@ interface EstadoApp {
   abortCtrl: AbortController | null;
   sesiones: Record<string, string>; // pacienteId -> sesion_id
 
+  // preferencias puramente visuales (persistidas en localStorage)
+  chatAbierto: boolean;
+
   // vista temporal
   intervalos: Intervalos | null;
   timelineAbierta: boolean;
+  timelineAltura: number;
+  gruposColapsados: Record<string, boolean>; // clave de grupo del Gantt -> colapsado
   rangoTiempo: RangoTiempo;
 
   cargarPacientes(): Promise<void>;
   seleccionarPaciente(id: string): Promise<void>;
   expandirNodo(id: string): Promise<void>;
+  alternarGrafoCompleto(): Promise<void>;
   fusionarGrafo(g: Grafo): void;
   alternarTipo(clave: string): void;
   resaltar(ids: string[]): void;
   vincularEvidencia(ids: string[]): Promise<void>;
   enviarMensaje(texto: string): Promise<void>;
   abortarStream(): void;
+  alternarChat(): void;
   alternarTimeline(): void;
+  alternarGrupoTimeline(clave: string): void;
+  fijarTimelineAltura(altura: number): void;
   fijarRangoTiempo(rango: RangoTiempo): void;
 }
 
 const claveArista = (a: Arista) => `${a.origen}|${a.tipo}|${a.destino}`;
+
+const CLAVE_PREFERENCIAS = "ehr-graph:ui:v1";
+const ALTURA_TIMELINE_DEFAULT = 380;
+
+interface PreferenciasUI {
+  chatAbierto: boolean;
+  timelineAbierta: boolean;
+  timelineAltura: number;
+  gruposColapsados: Record<string, boolean>;
+}
+
+function leerPreferencias(): PreferenciasUI {
+  const base = {
+    chatAbierto: true,
+    timelineAbierta: true,
+    timelineAltura: ALTURA_TIMELINE_DEFAULT,
+    gruposColapsados: {},
+  };
+  try {
+    const guardadas = JSON.parse(localStorage.getItem(CLAVE_PREFERENCIAS) ?? "null");
+    if (!guardadas || typeof guardadas !== "object") return base;
+    return {
+      chatAbierto: typeof guardadas.chatAbierto === "boolean" ? guardadas.chatAbierto : true,
+      timelineAbierta:
+        typeof guardadas.timelineAbierta === "boolean" ? guardadas.timelineAbierta : true,
+      timelineAltura:
+        typeof guardadas.timelineAltura === "number"
+          ? Math.max(280, Math.min(620, guardadas.timelineAltura))
+          : ALTURA_TIMELINE_DEFAULT,
+      gruposColapsados:
+        guardadas.gruposColapsados && typeof guardadas.gruposColapsados === "object"
+          ? guardadas.gruposColapsados
+          : {},
+    };
+  } catch {
+    return base;
+  }
+}
+
+function guardarPreferencias(preferencias: PreferenciasUI) {
+  try {
+    localStorage.setItem(CLAVE_PREFERENCIAS, JSON.stringify(preferencias));
+  } catch {
+    // La UI sigue funcionando si el navegador bloquea almacenamiento local.
+  }
+}
+
+const preferenciasIniciales = leerPreferencias();
 
 export const useEstado = create<EstadoApp>((set, get) => ({
   pacientes: [],
@@ -55,14 +115,19 @@ export const useEstado = create<EstadoApp>((set, get) => ({
   nodos: [],
   aristas: [],
   versionGrafo: 0,
+  grafoCompleto: false,
+  idsNucleo: new Set(),
   resaltados: new Set(),
   tiposOcultos: new Set(),
   mensajes: [],
   streamActivo: false,
   abortCtrl: null,
   sesiones: {},
+  chatAbierto: preferenciasIniciales.chatAbierto,
   intervalos: null,
-  timelineAbierta: true,
+  timelineAbierta: preferenciasIniciales.timelineAbierta,
+  timelineAltura: preferenciasIniciales.timelineAltura,
+  gruposColapsados: preferenciasIniciales.gruposColapsados,
   rangoTiempo: null,
 
   async cargarPacientes() {
@@ -78,6 +143,8 @@ export const useEstado = create<EstadoApp>((set, get) => ({
       resaltados: new Set<string>(),
       mensajes: [],
       cargandoGrafo: true,
+      grafoCompleto: false,
+      idsNucleo: new Set<string>(),
       intervalos: null,
       rangoTiempo: null,
       versionGrafo: s.versionGrafo + 1,
@@ -98,6 +165,7 @@ export const useEstado = create<EstadoApp>((set, get) => ({
       set((s) => ({
         nodos: g.nodos,
         aristas: g.aristas,
+        idsNucleo: new Set(g.nodos.map((n) => n.id)),
         cargandoGrafo: false,
         versionGrafo: s.versionGrafo + 1,
       }));
@@ -110,6 +178,36 @@ export const useEstado = create<EstadoApp>((set, get) => ({
     const { pacienteId } = get();
     if (!pacienteId) return;
     get().fusionarGrafo(await obtenerVecinos(id, pacienteId));
+  },
+
+  // Despliega TODO el grafo EHR del paciente o lo compacta al nucleo inicial.
+  async alternarGrafoCompleto() {
+    const { pacienteId, grafoCompleto, cargandoGrafo } = get();
+    if (!pacienteId || cargandoGrafo) return;
+    if (grafoCompleto) {
+      // Compactar: conservar solo el nucleo (sin llamada de red, mantiene posiciones).
+      set((s) => {
+        const idsNucleo = s.idsNucleo;
+        return {
+          nodos: s.nodos.filter((n) => idsNucleo.has(n.id)),
+          aristas: s.aristas.filter(
+            (a) => idsNucleo.has(a.origen) && idsNucleo.has(a.destino),
+          ),
+          grafoCompleto: false,
+          versionGrafo: s.versionGrafo + 1,
+        };
+      });
+      return;
+    }
+    set({ cargandoGrafo: true });
+    try {
+      const g = await obtenerGrafoCompleto(pacienteId);
+      if (get().pacienteId !== pacienteId) return; // cambio de paciente durante la carga
+      get().fusionarGrafo(g); // merge deduplicado: preserva las posiciones actuales
+      set({ grafoCompleto: true, cargandoGrafo: false });
+    } catch {
+      set({ cargandoGrafo: false });
+    }
   },
 
   fusionarGrafo(g) {
@@ -259,10 +357,11 @@ export const useEstado = create<EstadoApp>((set, get) => ({
       );
     } catch (e) {
       if ((e as Error).name !== "AbortError") {
+        const detalle = e instanceof Error ? e.message : "No se pudo conectar con la demo";
         actualizarUltimo((m) => ({
           ...m,
           error: true,
-          partes: [...m.partes, { tipo: "texto", texto: `Error de conexión: ${String(e)}` }],
+          partes: [...m.partes, { tipo: "texto", texto: detalle }],
         }));
       }
     } finally {
@@ -275,8 +374,56 @@ export const useEstado = create<EstadoApp>((set, get) => ({
     get().abortCtrl?.abort();
   },
 
+  alternarChat() {
+    set((s) => {
+      const chatAbierto = !s.chatAbierto;
+      guardarPreferencias({
+        chatAbierto,
+        timelineAbierta: s.timelineAbierta,
+        timelineAltura: s.timelineAltura,
+        gruposColapsados: s.gruposColapsados,
+      });
+      return { chatAbierto };
+    });
+  },
+
   alternarTimeline() {
-    set((s) => ({ timelineAbierta: !s.timelineAbierta }));
+    set((s) => {
+      const timelineAbierta = !s.timelineAbierta;
+      guardarPreferencias({
+        chatAbierto: s.chatAbierto,
+        timelineAbierta,
+        timelineAltura: s.timelineAltura,
+        gruposColapsados: s.gruposColapsados,
+      });
+      return { timelineAbierta };
+    });
+  },
+
+  alternarGrupoTimeline(clave) {
+    set((s) => {
+      const gruposColapsados = { ...s.gruposColapsados, [clave]: !s.gruposColapsados[clave] };
+      guardarPreferencias({
+        chatAbierto: s.chatAbierto,
+        timelineAbierta: s.timelineAbierta,
+        timelineAltura: s.timelineAltura,
+        gruposColapsados,
+      });
+      return { gruposColapsados };
+    });
+  },
+
+  fijarTimelineAltura(altura) {
+    set((s) => {
+      const timelineAltura = Math.max(280, Math.min(620, Math.round(altura)));
+      guardarPreferencias({
+        chatAbierto: s.chatAbierto,
+        timelineAbierta: s.timelineAbierta,
+        timelineAltura,
+        gruposColapsados: s.gruposColapsados,
+      });
+      return { timelineAltura };
+    });
   },
 
   // El throttle (rAF) vive en VistaTemporal; aquí solo el set.

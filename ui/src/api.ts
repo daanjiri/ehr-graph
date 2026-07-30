@@ -2,9 +2,19 @@
 
 import type { Grafo, Intervalos, Paciente } from "@/tipos";
 
+async function mensajeError(resp: Response): Promise<string> {
+  try {
+    const cuerpo = (await resp.json()) as { detail?: string };
+    if (cuerpo.detail) return cuerpo.detail;
+  } catch {
+    // Algunos proxies responden HTML/texto; usamos el estado HTTP.
+  }
+  return `${resp.status} ${resp.statusText}`;
+}
+
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(url, init);
-  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  if (!resp.ok) throw new Error(await mensajeError(resp));
   return resp.json();
 }
 
@@ -14,6 +24,10 @@ export function obtenerPacientes(): Promise<Paciente[]> {
 
 export function obtenerGrafo(pid: string): Promise<Grafo> {
   return json(`/api/pacientes/${pid}/grafo`);
+}
+
+export function obtenerGrafoCompleto(pid: string): Promise<Grafo> {
+  return json(`/api/pacientes/${pid}/grafo/completo`);
 }
 
 export function obtenerIntervalos(pid: string): Promise<Intervalos> {
@@ -53,7 +67,8 @@ export async function chatSSE(
     body: JSON.stringify(cuerpo),
     signal,
   });
-  if (!resp.ok || !resp.body) throw new Error(`Error ${resp.status} del servidor`);
+  if (!resp.ok) throw new Error(await mensajeError(resp));
+  if (!resp.body) throw new Error("El servidor no inició el stream de respuesta");
 
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();

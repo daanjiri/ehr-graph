@@ -4,24 +4,29 @@ Las sesiones guardan los content blocks del SDK anthropic tal cual (objetos
 Pydantic, nunca pasan por JSON) -> requiere 1 solo worker de uvicorn.
 """
 
+import logging
+import os
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import agente
+from api.limites import direccion_cliente, hash_cliente, reservar
 from api.eventos import extraer_nodo_ids, recortar_historial, sse
+from config import (CHAT_LIMITE_DIARIO_CLIENTE, CHAT_LIMITE_MENSUAL_GLOBAL,
+                    CHAT_MAX_CHARS, CHAT_MAX_INTERCAMBIOS)
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 SESIONES = {}  # sesion_id -> {"paciente_id": str, "mensajes": list}
-MAX_INTERCAMBIOS = 10
 
 
 class PeticionChat(BaseModel):
     paciente_id: str
-    mensaje: str
+    mensaje: str = Field(min_length=1, max_length=CHAT_MAX_CHARS)
     sesion_id: str | None = None
 
 
@@ -36,17 +41,43 @@ def _sesion(peticion):
 
 
 @router.post("/chat")
-def chat(peticion: PeticionChat):
+def chat(peticion: PeticionChat, request: Request):
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(503, "La demo de chat no está configurada")
+
+    mensaje = peticion.mensaje.strip()
+    if not mensaje:
+        raise HTTPException(422, "El mensaje no puede estar vacío")
+
     filas = agente.q("MATCH (p:Paciente {id: $pid}) RETURN p.nombre AS nombre",
                      pid=peticion.paciente_id)
     if not filas:
         raise HTTPException(404, "Paciente no encontrado")
     nombre = filas[0]["nombre"]
 
+    try:
+        cuota = reservar(
+            agente.driver(),
+            hash_cliente(direccion_cliente(request)),
+        )
+    except Exception as exc:
+        logger.exception("No se pudo reservar la cuota de chat")
+        raise HTTPException(503, "No se pudo validar la cuota de la demo") from exc
+    if not cuota["permitido"]:
+        if cuota["global_count"] >= CHAT_LIMITE_MENSUAL_GLOBAL:
+            detalle = "La demo alcanzó su cupo mensual. Inténtalo el próximo mes."
+        else:
+            detalle = (
+                f"Alcanzaste el límite de {CHAT_LIMITE_DIARIO_CLIENTE} "
+                "mensajes diarios para esta demo."
+            )
+        raise HTTPException(429, detalle)
+
     sesion_id, sesion = _sesion(peticion)
-    sesion["mensajes"] = recortar_historial(sesion["mensajes"], MAX_INTERCAMBIOS)
+    sesion["mensajes"] = recortar_historial(
+        sesion["mensajes"], CHAT_MAX_INTERCAMBIOS)
     mensajes = sesion["mensajes"]
-    mensajes.append({"role": "user", "content": peticion.mensaje})
+    mensajes.append({"role": "user", "content": mensaje})
 
     extra = (f"El usuario esta viendo el grafo del paciente {nombre} "
              f"(id: {peticion.paciente_id}). Usa ese paciente_id en las "
@@ -74,8 +105,11 @@ def chat(peticion: PeticionChat):
                     yield sse("tool_result", datos)
                 elif ev["tipo"] == "fin":
                     yield sse("fin", {"nodo_ids": nodo_ids_turno})
-        except Exception as e:  # el stream no puede devolver un 500: evento error
-            yield sse("error", {"mensaje": str(e)})
+        except Exception:  # el stream no puede devolver un 500: evento error
+            logger.exception("Error durante el stream del agente")
+            yield sse("error", {
+                "mensaje": "No pudimos completar la respuesta. Inténtalo nuevamente."
+            })
 
     return StreamingResponse(generar(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache",

@@ -15,11 +15,10 @@ import sys
 import neo4j.time
 from neo4j import GraphDatabase
 
+from config import ANTHROPIC_MAX_TOKENS, ANTHROPIC_MODEL, NEO4J_AUTH, NEO4J_URI
 from semantica import buscar_semantico
 
-NEO4J_URI = "bolt://localhost:7687"
-NEO4J_AUTH = ("neo4j", "password123")
-MODELO_LLM = "claude-sonnet-4-6"
+MODELO_LLM = ANTHROPIC_MODEL
 
 ARISTAS_CAUSALES = "TRATA|INDICADO_POR|EVIDENCIA_DE|COMPLICACION_DE|MOTIVO_SUSPENSION_DE|REEMPLAZA_A|MONITOREA"
 
@@ -53,13 +52,15 @@ def q(cypher, **params):
 # Herramientas de travesía fija
 # ---------------------------------------------------------------------------
 
-def t_listar_pacientes(limite=10):
-    return q("""
+def t_listar_pacientes(limite=10, paciente_id=None):
+    filtro = "WHERE p.id = $pid" if paciente_id else ""
+    return q(f"""
         MATCH (p:Paciente)
+        {filtro}
         RETURN p.id AS id, p.fhir_id AS fhir_id, p.nombre AS nombre, p.sexo AS sexo,
                toString(p.fecha_nacimiento) AS fecha_nacimiento, p.fallecido AS fallecido
         ORDER BY p.nombre LIMIT $limite
-    """, limite=int(limite))
+    """, pid=paciente_id, limite=int(limite))
 
 
 def t_timeline(paciente_id, desde=None, hasta=None, limite=30):
@@ -84,39 +85,44 @@ def t_buscar_semantico(pregunta, paciente_id=None, k=5):
                                    driver=driver()))
 
 
-def t_expandir_contexto(nodo_id, saltos=1):
+def t_expandir_contexto(nodo_id, saltos=1, paciente_id=None):
     saltos = max(1, min(int(saltos), 3))
     filas = q(f"""
         MATCH (n:Evento {{id: $id}})
+        WHERE $pid IS NULL OR n.paciente_id = $pid
         MATCH camino = (n)-[*1..{saltos}]-(m)
+        WHERE $pid IS NULL OR m.paciente_id = $pid OR NOT m:Evento
         WITH DISTINCT m, [r IN relationships(camino) | type(r)] AS relaciones
         RETURN [l IN labels(m) WHERE l <> 'Evento'][0] AS tipo, relaciones,
                coalesce(m.texto_descriptivo, m.nombre, m.nombre_generico, m.id) AS descripcion,
                m.id AS id
         LIMIT 40
-    """, id=nodo_id)
+    """, id=nodo_id, pid=paciente_id)
     if not filas:  # el id puede ser de un Paciente
         filas = q("""
             MATCH (p:Paciente {id: $id})<-[:DE_PACIENTE]-(e:Evento)
+            WHERE $pid IS NULL OR p.id = $pid
             RETURN [l IN labels(e) WHERE l <> 'Evento'][0] AS tipo,
                    ['DE_PACIENTE'] AS relaciones, e.texto_descriptivo AS descripcion,
                    e.id AS id
             ORDER BY e.fecha_efectiva DESC LIMIT 40
-        """, id=nodo_id)
+        """, id=nodo_id, pid=paciente_id)
     return filas
 
 
-def t_cadena_causal(nodo_id):
+def t_cadena_causal(nodo_id, paciente_id=None):
     """Causas y efectos vía aristas causales, 1..3 saltos."""
     return q(f"""
         MATCH camino = (n:Evento {{id: $id}})-[:{ARISTAS_CAUSALES}*1..3]-(m)
+        WHERE ($pid IS NULL OR n.paciente_id = $pid)
+          AND ($pid IS NULL OR m.paciente_id = $pid)
         WITH DISTINCT m, camino
         RETURN [l IN labels(m) WHERE l <> 'Evento'][0] AS tipo,
                [r IN relationships(camino) | type(r) + ' (' + r.fuente + ', ' +
                 toString(r.confianza) + ')'] AS cadena,
                m.texto_descriptivo AS descripcion, m.id AS id
         LIMIT 25
-    """, id=nodo_id)
+    """, id=nodo_id, pid=paciente_id)
 
 
 def t_medicacion_activa(paciente_id):
@@ -244,9 +250,17 @@ def ejecutar_herramienta(nombre, entrada):
     return HERRAMIENTAS[nombre](**entrada)
 
 
-# Herramientas que aceptan paciente_id: si el caller fija uno, se rellena cuando
-# el modelo lo omita (scope suave por sesión de la UI).
-HERRAMIENTAS_PACIENTE = {"buscar_semantico", "timeline", "medicacion_activa"}
+# En la UI el paciente lo fija el servidor, nunca el modelo. Todas las
+# herramientas reciben ese scope aunque el campo no aparezca en su schema.
+HERRAMIENTAS_PACIENTE = set(HERRAMIENTAS)
+
+
+def acotar_entrada(nombre, entrada, paciente_id=None):
+    """Impone el paciente de la sesión sobre cualquier valor propuesto por el LLM."""
+    entrada = dict(entrada)
+    if paciente_id and nombre in HERRAMIENTAS_PACIENTE:
+        entrada["paciente_id"] = paciente_id
+    return entrada
 
 
 def loop_agente_eventos(mensajes, system_extra=None, paciente_id=None):
@@ -262,7 +276,7 @@ def loop_agente_eventos(mensajes, system_extra=None, paciente_id=None):
     system = SYSTEM if not system_extra else SYSTEM + "\n" + system_extra
     while True:
         with client.messages.stream(
-            model=MODELO_LLM, max_tokens=4096, system=system,
+            model=MODELO_LLM, max_tokens=ANTHROPIC_MAX_TOKENS, system=system,
             tools=TOOLS, messages=mensajes,
         ) as stream:
             for delta in stream.text_stream:
@@ -279,10 +293,7 @@ def loop_agente_eventos(mensajes, system_extra=None, paciente_id=None):
         for bloque in respuesta.content:
             if bloque.type != "tool_use":
                 continue
-            entrada = dict(bloque.input)
-            if (paciente_id and bloque.name in HERRAMIENTAS_PACIENTE
-                    and not entrada.get("paciente_id")):
-                entrada["paciente_id"] = paciente_id
+            entrada = acotar_entrada(bloque.name, bloque.input, paciente_id)
             yield {"tipo": "tool_call", "nombre": bloque.name, "entrada": entrada}
             try:
                 salida = ejecutar_herramienta(bloque.name, entrada)

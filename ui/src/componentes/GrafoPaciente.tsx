@@ -46,6 +46,7 @@ export function GrafoPaciente() {
   const gRef = useRef<{ aristas: SVGGElement; nodos: SVGGElement } | null>(null);
   const selRef = useRef<Selecciones | null>(null);
   const primeraVezRef = useRef(true);
+  const nNodosRef = useRef(0);
 
   const [tooltip, setTooltip] = useState<{ nodo: NodoGrafo; x: number; y: number } | null>(null);
 
@@ -254,7 +255,11 @@ export function GrafoPaciente() {
 
     sim.nodes(visibles);
     (sim.force("enlace") as d3.ForceLink<NodoGrafo, EnlaceSim>).links(enlaces);
-    sim.alpha(primeraVezRef.current ? 0.9 : 0.3).restart();
+    // Un salto grande de nodos (desplegar todo) necesita más energía para asentar.
+    const salto = visibles.length - nNodosRef.current;
+    nNodosRef.current = visibles.length;
+    const energia = primeraVezRef.current ? 0.9 : salto > 40 ? 0.6 : 0.3;
+    sim.alpha(energia).restart();
     primeraVezRef.current = false;
   }, [versionGrafo]);
 

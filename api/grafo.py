@@ -21,6 +21,14 @@ def nodo(fila):
     return {k: fila[k] for k in CAMPOS_NODO if fila.get(k) is not None}
 
 
+def arista(fila):
+    """Arista {origen, destino, tipo [, severidad]} — omite severidad nula."""
+    a = {"origen": fila["origen"], "destino": fila["destino"], "tipo": fila["tipo"]}
+    if fila.get("severidad") is not None:
+        a["severidad"] = fila["severidad"]
+    return a
+
+
 # ---------------------------------------------------------------------------
 # Pacientes
 # ---------------------------------------------------------------------------
@@ -30,7 +38,7 @@ def pacientes():
     return t_listar_pacientes(limite=100)
 
 
-@router.get("/pacientes/{pid}/timeline")
+@router.get("/pacientes/{pid:path}/timeline")
 def timeline(pid: str, desde: str = None, hasta: str = None, limite: int = 30):
     return t_timeline(pid, desde=desde, hasta=hasta, limite=limite)
 
@@ -95,7 +103,7 @@ RETURN DISTINCT f1.id AS origen, f2.id AS destino, 'INTERACTUA_CON' AS tipo,
 """
 
 
-@router.get("/pacientes/{pid}/grafo")
+@router.get("/pacientes/{pid:path}/grafo")
 def grafo_paciente(pid: str):
     fila_paciente = q(Q_PACIENTE, pid=pid)
     if not fila_paciente:
@@ -112,6 +120,62 @@ def grafo_paciente(pid: str):
                 for c in condiciones]
     aristas += [{"origen": rx["id"], "destino": pid, "tipo": "DE_PACIENTE"}
                 for rx in prescripciones if rx["id"] not in rx_con_trata]
+    return {"nodos": nodos, "aristas": aristas}
+
+
+# ---------------------------------------------------------------------------
+# Grafo completo: TODOS los eventos del paciente + sus conceptos compartidos
+# (travesia fija parametrizada por paciente_id -> sin fuga entre pacientes)
+# ---------------------------------------------------------------------------
+
+Q_COMPLETO_EVENTOS = """
+MATCH (e:Evento {paciente_id: $pid})
+RETURN e.id AS id,
+       [l IN labels(e) WHERE l <> 'Evento'][0] AS tipo,
+       e.fhir_id AS fhir_id,
+       coalesce(e.nombre, e.nombre_generico, left(e.texto_descriptivo, 60), e.id) AS etiqueta,
+       toString(e.fecha_efectiva) AS fecha,
+       toString(coalesce(e.fecha_resolucion, e.fecha_fin)) AS fecha_fin,
+       coalesce(e.texto_descriptivo, e.nombre, e.nombre_generico) AS descripcion,
+       coalesce(e.estado, e.estado_clinico) AS estado
+"""
+
+# Conceptos compartidos (sin paciente_id) referenciados por los eventos del
+# paciente. El filtro c.id IS NOT NULL descarta nodos sin clave canonica (una
+# BD ingerida con el esquema viejo no la tiene) -> nunca emitimos nodos sin id.
+Q_COMPLETO_CONCEPTOS = """
+MATCH (:Evento {paciente_id: $pid})-->(c)
+WHERE c.paciente_id IS NULL AND NOT c:Paciente AND c.id IS NOT NULL
+RETURN DISTINCT c.id AS id, labels(c)[0] AS tipo,
+       coalesce(c.nombre, c.nombre_generico) AS etiqueta,
+       coalesce(c.nombre, c.nombre_generico) AS descripcion
+"""
+
+# Toda arista saliente de un evento del paciente hacia otro nodo del conjunto
+# (otro evento del mismo paciente, un concepto compartido, o el hub Paciente).
+# startNode = el evento, asi que origen/destino ya quedan orientados. Se exige
+# m.id (extremo con clave) para no crear aristas hacia nodos que no emitimos.
+Q_COMPLETO_ARISTAS = """
+MATCH (n:Evento {paciente_id: $pid})-[r]->(m)
+WHERE m.id IS NOT NULL
+  AND (m.paciente_id = $pid OR (m.paciente_id IS NULL AND NOT m:Paciente)
+       OR (m:Paciente AND m.id = $pid))
+RETURN DISTINCT n.id AS origen, m.id AS destino, type(r) AS tipo,
+       r.severidad AS severidad
+"""
+
+
+@router.get("/pacientes/{pid:path}/grafo/completo")
+def grafo_completo(pid: str):
+    """Grafo EHR completo del paciente: todos sus eventos + conceptos + aristas.
+    Las aristas Farmaco-INTERACTUA_CON-Farmaco se anaden aparte (concepto-concepto,
+    no salen de un evento)."""
+    if not q(Q_PACIENTE, pid=pid):
+        raise HTTPException(404, "Paciente no encontrado")
+    nodos = [nodo(f) for f in q(Q_PACIENTE, pid=pid)
+             + q(Q_COMPLETO_EVENTOS, pid=pid) + q(Q_COMPLETO_CONCEPTOS, pid=pid)]
+    aristas = [arista(f) for f in q(Q_COMPLETO_ARISTAS, pid=pid)
+               + q(Q_INTERACCIONES, pid=pid)]
     return {"nodos": nodos, "aristas": aristas}
 
 
@@ -157,7 +221,7 @@ RETURN [l IN labels(e) WHERE l <> 'Evento'][0] AS tipo,
 """
 
 
-@router.get("/pacientes/{pid}/intervalos")
+@router.get("/pacientes/{pid:path}/intervalos")
 def intervalos(pid: str):
     """Datos de la timeline: barras (condiciones/prescripciones), encuentros
     y densidad mensual de eventos puntuales. Nota: Synthea no exporta fin de
@@ -236,7 +300,7 @@ def _filas_a_grafo(nodo_id, filas):
     return {"nodos": nodos, "aristas": aristas}
 
 
-@router.get("/nodos/{nodo_id}/vecinos")
+@router.get("/nodos/{nodo_id:path}/vecinos")
 def vecinos(nodo_id: str, pid: str):
     filas = q(Q_VECINOS_EVENTO, id=nodo_id, pid=pid)
     if not filas:

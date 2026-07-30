@@ -19,8 +19,7 @@ from urllib.parse import unquote, urlparse
 
 from neo4j import GraphDatabase
 
-NEO4J_URI = "bolt://localhost:7687"
-NEO4J_AUTH = ("neo4j", "password123")
+from config import NEO4J_AUTH, NEO4J_URI
 EXCLUIR_PREFIJOS = ("hospitalInformation", "practitionerInformation")
 SISTEMA_DESCONOCIDO = "urn:ietf:rfc:3986"
 BATCH = 1000

@@ -2,7 +2,14 @@ neo4j_data/
 output/
 *.jar
 .venv/
+.env
+.env.*
+!.env.example
 __pycache__/
 .pytest_cache/
 ui/node_modules/
 ui/dist/
+*.log
+graphify-out/
+backups/
+.huggingface/

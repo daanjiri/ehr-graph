@@ -11,7 +11,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { CircleAlert, Loader2, Send, Sparkles, Square, Wrench } from "lucide-react";
+import {
+  CircleAlert,
+  Loader2,
+  PanelRightClose,
+  PanelRightOpen,
+  Send,
+  Sparkles,
+  Square,
+  Wrench,
+} from "lucide-react";
 
 const NOMBRE_TOOL: Record<string, string> = {
   buscar_semantico: "búsqueda semántica",
@@ -90,25 +99,58 @@ function Burbuja({ mensaje }: { mensaje: Mensaje }) {
   );
 }
 
-export function PanelChat() {
+export function PanelChat({ colapsado = false }: { colapsado?: boolean }) {
   const mensajes = useEstado((s) => s.mensajes);
   const streamActivo = useEstado((s) => s.streamActivo);
   const pacienteId = useEstado((s) => s.pacienteId);
   const enviarMensaje = useEstado((s) => s.enviarMensaje);
   const abortarStream = useEstado((s) => s.abortarStream);
+  const alternarChat = useEstado((s) => s.alternarChat);
 
   const [texto, setTexto] = useState("");
   const finRef = useRef<HTMLDivElement>(null);
+  const cerrarRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     finRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [mensajes]);
+
+  useEffect(() => {
+    if (colapsado) return;
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      requestAnimationFrame(() => cerrarRef.current?.focus());
+    }
+    const cerrarConEscape = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape" && window.matchMedia("(max-width: 1023px)").matches) {
+        alternarChat();
+      }
+    };
+    window.addEventListener("keydown", cerrarConEscape);
+    return () => window.removeEventListener("keydown", cerrarConEscape);
+  }, [colapsado, alternarChat]);
 
   const enviar = () => {
     if (!texto.trim() || streamActivo) return;
     void enviarMensaje(texto.trim());
     setTexto("");
   };
+
+  if (colapsado) {
+    return (
+      <button
+        onClick={alternarChat}
+        className="flex h-full w-full flex-col items-center gap-3 py-3 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+        title="Abrir asistente clínico"
+        aria-label="Abrir asistente clínico"
+        aria-expanded={false}
+      >
+        <PanelRightOpen className="size-4" />
+        <Sparkles className="size-4 text-primary" />
+        <span className="text-[11px] font-medium [writing-mode:vertical-rl]">Asistente</span>
+        {streamActivo && <span className="mt-auto size-2 animate-pulse rounded-full bg-primary" />}
+      </button>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -118,6 +160,16 @@ export function PanelChat() {
         <Badge variant="outline" className="ml-auto">
           GraphRAG
         </Badge>
+        <button
+          ref={cerrarRef}
+          onClick={alternarChat}
+          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          title="Colapsar asistente"
+          aria-label="Colapsar asistente clínico"
+          aria-expanded={true}
+        >
+          <PanelRightClose className="size-4" />
+        </button>
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
@@ -152,6 +204,7 @@ export function PanelChat() {
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && enviar()}
+          maxLength={500}
           placeholder={pacienteId ? "Escribe tu pregunta…" : "Selecciona un paciente primero"}
           disabled={!pacienteId || streamActivo}
         />

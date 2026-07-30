@@ -40,7 +40,8 @@ Principios de diseño (no negociables):
   codificados con SNOMED/RxNorm/LOINC. NUNCA datos reales en este proyecto.
 - **Embeddings**: `paraphrase-multilingual-MiniLM-L12-v2` (384 dims, CPU;
   multilingüe porque las preguntas serán en español y los datos Synthea en inglés)
-- **LLM del agente**: `claude-sonnet-4-6` vía API de Anthropic (tool use).
+- **LLM del agente**: configurable vía `ANTHROPIC_MODEL`; producción pública
+  usa el snapshot `claude-haiku-4-5-20251001` por costo, estabilidad y tool use.
   Docs: https://docs.claude.com/en/api/overview
 
 ## 3. ESTRUCTURA DE ARCHIVOS OBJETIVO
@@ -301,7 +302,7 @@ grafo; estrategia anclar→expandir→sintetizar; citar fechas y valores exactos
 el grafo no contiene la respuesta, decirlo; nunca inventar datos clínicos;
 aclarar que son datos sintéticos.
 
-Loop: `client.messages.create(model="claude-sonnet-4-6", tools=TOOLS, ...)`;
+Loop: `client.messages.create(model=ANTHROPIC_MODEL, tools=TOOLS, ...)`;
 mientras `stop_reason == "tool_use"`, ejecutar herramientas y devolver
 tool_result; sin `ANTHROPIC_API_KEY`, modo demo: listar pacientes + timeline +
 medicación activa del primero.
