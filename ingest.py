@@ -134,9 +134,19 @@ PLANTILLAS = {
     "Condicion": "Diagnostico: {nombre} ({estado}), inicio {fecha}.",
     "Prescripcion": "Prescripcion de {farmaco} ({estado}), iniciada {fecha}. {dosis_texto}",
     "Procedimiento": "Procedimiento: {nombre} realizado el {fecha}.",
-    "Observacion": "Lab/medicion: {nombre} = {valor} {unidad} el {fecha}.",
+    "Observacion": "{categoria}: {nombre} = {valor} {unidad} el {fecha}.",
     "Alergia": "Alergia/intolerancia: {nombre} ({criticidad}).",
     "Inmunizacion": "Vacuna: {nombre} el {fecha}.",
+    "Informe": "Informe diagnostico: {nombre} el {fecha}.",
+}
+
+# Observation.category (FHIR observation-category) -> prefijo legible del texto
+# descriptivo; un PHQ-9 (survey) no es un "Lab" y los embeddings lo agradecen.
+CATEGORIA_OBS = {
+    "laboratory": "Lab", "vital-signs": "Signo vital",
+    "survey": "Cuestionario/escala", "social-history": "Historia social",
+    "procedure": "Medicion de procedimiento", "imaging": "Imagen",
+    "exam": "Examen", "therapy": "Terapia",
 }
 
 
@@ -308,17 +318,51 @@ def _razones(res, ctx, path="reasonReference"):
 # Extractores FHIR
 # ---------------------------------------------------------------------------
 
+URL_RAZA = "http://hl7.org/fhir/us/core/StructureDefinition/us-core-race"
+URL_ETNIA = "http://hl7.org/fhir/us/core/StructureDefinition/us-core-ethnicity"
+URL_SEXO_NACIMIENTO = "http://hl7.org/fhir/us/core/StructureDefinition/us-core-birthsex"
+
+
+def _extension_texto(res, url):
+    """Valor legible de una extensión FHIR: sub-extensión 'text', valueCode o valueString."""
+    ext = next((e for e in res.get("extension") or [] if e.get("url") == url), None)
+    if not ext:
+        return None
+    sub = next((s for s in ext.get("extension") or [] if s.get("url") == "text"), None)
+    if sub:
+        return sub.get("valueString")
+    return ext.get("valueCode") or ext.get("valueString")
+
+
+def _mrn(res):
+    """identifier con type MR (Medical Record Number); SSN/licencias no se ingieren."""
+    for ident in res.get("identifier") or []:
+        tipos = (ident.get("type") or {}).get("coding") or []
+        if any(c.get("code") == "MR" for c in tipos):
+            return ident.get("value")
+    return None
+
+
 def fila_patient(res, ctx):
     nombres = res.get("name") or []
     oficial = next((n for n in nombres if n.get("use") == "official"),
                    nombres[0] if nombres else {})
     nombre = " ".join((oficial.get("given") or []) + [oficial.get("family", "")]).strip() or None
     fallecimiento = norm_dt(res.get("deceasedDateTime"))
+    direccion = (res.get("address") or [{}])[0]
+    estado_civil = res.get("maritalStatus") or {}
     return {**_provenance(res, ctx), "nombre": nombre,
             "sexo": res.get("gender", "unknown"),
             "fecha_nacimiento": norm_date(res.get("birthDate")),
             "fallecido": bool(fallecimiento or res.get("deceasedBoolean")),
-            "fecha_fallecimiento": fallecimiento}
+            "fecha_fallecimiento": fallecimiento,
+            "mrn": _mrn(res),
+            "raza": _extension_texto(res, URL_RAZA),
+            "etnia": _extension_texto(res, URL_ETNIA),
+            "sexo_nacimiento": _extension_texto(res, URL_SEXO_NACIMIENTO),
+            "ciudad": direccion.get("city"), "estado_region": direccion.get("state"),
+            "pais": direccion.get("country"),
+            "estado_civil": estado_civil.get("text") or (coding(estado_civil) or {}).get("nombre")}
 
 
 def _evento_base(res, ctx, paciente_ref, fecha, texto):
@@ -342,8 +386,8 @@ def fila_encounter(res, ctx):
     fecha = norm_dt(periodo.get("start"))
     return {**_evento_base(res, ctx, res.get("subject"), fecha,
                            build_texto("Encuentro", tipo=tipo, fecha=fmt_fecha(fecha))),
-            "tipo": tipo, "fecha_inicio": fecha, "fecha_fin": norm_dt(periodo.get("end")),
-            "motivo_consulta": motivo}
+            "tipo": tipo, "clase_codigo": clase, "fecha_inicio": fecha,
+            "fecha_fin": norm_dt(periodo.get("end")), "motivo_consulta": motivo}
 
 
 def fila_condition(res, ctx):
@@ -357,6 +401,7 @@ def fila_condition(res, ctx):
                                        estado=estado, fecha=fmt_fecha(fecha))),
             "nombre": principal.get("nombre"), "estado_clinico": estado,
             "estado_verificacion": code_only(res.get("verificationStatus")),
+            "categoria": code_only((res.get("category") or [{}])[0]),
             "fecha_inicio": fecha_inicio, "fecha_resolucion": norm_dt(res.get("abatementDateTime")),
             "severidad": (coding(res.get("severity")) or {}).get("nombre"),
             "es_cronica": None, "encuentro_id": resolver_ref(res.get("encounter"), ctx, "encounter"),
@@ -426,11 +471,14 @@ def fila_observation(res, ctx):
     interpretacion = None
     if res.get("interpretation"):
         interpretacion = (code_only(res["interpretation"][0]) or "").lower() or None
+    categoria = code_only((res.get("category") or [{}])[0])
     fila = {**_evento_base(res, ctx, res.get("subject"), fecha,
                            build_texto("Observacion", nombre=principal.get("nombre"),
+                                       categoria=CATEGORIA_OBS.get(categoria, "Lab/medicion"),
                                        valor=valor_texto, unidad=unidad_texto or "",
                                        fecha=fmt_fecha(fecha))),
             "nombre": principal.get("nombre"), **valor,
+            "categoria": categoria, "estado": res.get("status"),
             "fecha": fecha, "rango_ref_min": (rango.get("low") or {}).get("value"),
             "rango_ref_max": (rango.get("high") or {}).get("value"),
             "interpretacion": interpretacion,
@@ -454,11 +502,12 @@ def fila_allergy(res, ctx):
                                        criticidad=res.get("criticality") or "sin criticidad")),
             "tipo": res.get("type"), "criticidad": res.get("criticality"),
             "reaccion": "; ".join(reacciones) or None,
-            "estado": code_only(res.get("clinicalStatus")), "codigos": cs}
+            "estado": code_only(res.get("clinicalStatus")),
+            "estado_verificacion": code_only(res.get("verificationStatus")), "codigos": cs}
 
 
 def fila_immunization(res, ctx):
-    cs = _codigos(res.get("vaccineCode"), None, "ConceptoProcedimiento")
+    cs = _codigos(res.get("vaccineCode"), None, "ConceptoVacuna")
     principal = next((c for c in cs if c["principal"]), {})
     fecha = norm_dt(res.get("occurrenceDateTime"))
     protocolo = (res.get("protocolApplied") or [{}])[0]
@@ -468,17 +517,40 @@ def fila_immunization(res, ctx):
                                        fecha=fmt_fecha(fecha))),
             "nombre": principal.get("nombre"), "fecha": fecha, "dosis_numero": dosis,
             "lote": res.get("lotNumber"), "estado": res.get("status", "unknown"),
+            "encuentro_id": resolver_ref(res.get("encounter"), ctx, "encounter"),
             "codigos": cs}
+
+
+def fila_diagnostic_report(res, ctx):
+    """Solo paneles con result[] (perfil lipídico, hemograma...); los informes de
+    solo notas (presentedForm) se omiten y se cuentan aparte."""
+    resultados = []
+    for i, ref in enumerate(res.get("result") or []):
+        destino = resolver_ref(ref, ctx, f"result[{i}]")
+        if destino:
+            resultados.append({"dest_id": destino, "fhir_path": f"result[{i}]"})
+    if not resultados:
+        return None
+    cs = _codigos(res.get("code"), "loinc", "ConceptoLab")
+    principal = next((c for c in cs if c["principal"]), {})
+    fecha = norm_dt(res.get("effectiveDateTime")) or norm_dt(res.get("issued"))
+    return {**_evento_base(res, ctx, res.get("subject"), fecha,
+                           build_texto("Informe", nombre=principal.get("nombre"),
+                                       fecha=fmt_fecha(fecha))),
+            "nombre": principal.get("nombre"), "estado": res.get("status", "unknown"),
+            "categoria": code_only((res.get("category") or [{}])[0]),
+            "encuentro_id": resolver_ref(res.get("encounter"), ctx, "encounter"),
+            "codigos": cs, "resultados": resultados}
 
 
 HANDLERS = {
     "Patient": fila_patient, "Encounter": fila_encounter, "Condition": fila_condition,
     "MedicationRequest": fila_medication_request, "Procedure": fila_procedure,
     "Observation": fila_observation, "AllergyIntolerance": fila_allergy,
-    "Immunization": fila_immunization,
+    "Immunization": fila_immunization, "DiagnosticReport": fila_diagnostic_report,
 }
-ORDEN = ["Patient", "Encounter", "Condition", "Observation", "Procedure",
-         "MedicationRequest", "AllergyIntolerance", "Immunization"]
+ORDEN = ["Patient", "Encounter", "Condition", "Observation", "DiagnosticReport",
+         "Procedure", "MedicationRequest", "AllergyIntolerance", "Immunization"]
 
 
 # ---------------------------------------------------------------------------
@@ -495,7 +567,10 @@ SET p.fecha_actualizacion_ingesta = datetime(), p.fhir_id = f.fhir_id,
     p.ultima_actualizacion_fhir = f.ultima_actualizacion_fhir,
     p.perfiles_fhir = f.perfiles_fhir, p.nombre = f.nombre, p.sexo = f.sexo,
     p.fecha_nacimiento = f.fecha_nacimiento, p.fallecido = f.fallecido,
-    p.fecha_fallecimiento = f.fecha_fallecimiento
+    p.fecha_fallecimiento = f.fecha_fallecimiento, p.mrn = f.mrn,
+    p.raza = f.raza, p.etnia = f.etnia, p.sexo_nacimiento = f.sexo_nacimiento,
+    p.ciudad = f.ciudad, p.estado_region = f.estado_region, p.pais = f.pais,
+    p.estado_civil = f.estado_civil
 """
 
 
@@ -527,10 +602,12 @@ MERGE (n)-[:{rel}]->(e)
 """
 
 
-def q_concepto(label, rel, prop_nombre="nombre"):
+def q_concepto(label, rel, prop_nombre="nombre", label_origen="Evento"):
+    # label_origen ancla el MATCH a un label con constraint UNIQUE sobre id;
+    # sin label el planner cae a AllNodesScan por lote y la ingesta se arrastra.
     return f"""
 UNWIND $filas AS f
-MATCH (n {{id: f.nodo_id}})
+MATCH (n:{label_origen} {{id: f.nodo_id}})
 MERGE (c:{label} {{sistema: f.sistema, codigo: f.codigo}})
 SET c.id = f.concepto_id, c.{prop_nombre} = f.nombre, c.version = f.version
 MERGE (n)-[r:{rel}]->(c)
@@ -540,7 +617,7 @@ SET r.principal = f.principal, r.user_selected = f.user_selected
 
 Q_COMPONENTES = """
 UNWIND $filas AS f
-MATCH (o:Observacion {id: f.observacion_id})
+MATCH (o:Observacion:Evento {id: f.observacion_id})
 MERGE (c:ComponenteObservacion {id: f.id})
 SET c.indice = f.indice, c.paciente_id = f.paciente_id, c.nombre = f.nombre,
     c.valor_numero = f.valor_numero, c.valor_texto = f.valor_texto,
@@ -561,10 +638,19 @@ SET r.fuente = 'explicita', r.confianza = 1.0, r.fhir_path = f.fhir_path
 """
 
 
+Q_RESULTADO = """
+UNWIND $filas AS f
+MATCH (n:InformeDiagnostico:Evento {id: f.id}), (dest:Observacion:Evento {id: f.dest_id})
+WHERE n.paciente_id = dest.paciente_id
+MERGE (n)-[r:INCLUYE_RESULTADO]->(dest)
+SET r.fhir_path = f.fhir_path
+"""
+
+
 def q_causal(rel):
     return f"""
 UNWIND $filas AS f
-MATCH (n:Evento {{id: f.id}}), (dest:Condicion {{id: f.dest_id}})
+MATCH (n:Evento {{id: f.id}}), (dest:Condicion:Evento {{id: f.dest_id}})
 WHERE n.paciente_id = dest.paciente_id
 MERGE (n)-[r:{rel}]->(dest)
 SET r.fuente = 'explicita', r.confianza = 1.0, r.fhir_path = f.fhir_path
@@ -573,13 +659,14 @@ SET r.fuente = 'explicita', r.confianza = 1.0, r.fhir_path = f.fhir_path
 
 ESCRITURA = {
     "Patient": {"nodo": Q_PACIENTE},
-    "Encounter": {"nodo": q_nodo_evento("Encuentro", ["tipo", "fecha_inicio", "fecha_fin", "motivo_consulta"])},
-    "Condition": {"nodo": q_nodo_evento("Condicion", ["nombre", "estado_clinico", "estado_verificacion", "fecha_inicio", "fecha_resolucion", "severidad", "es_cronica"]), "encuentro": q_encuentro("REGISTRADA_EN"), "concepto": (q_concepto("ConceptoDiagnostico", "CODIFICADA_COMO"), "CODIFICADA_COMO")},
+    "Encounter": {"nodo": q_nodo_evento("Encuentro", ["tipo", "clase_codigo", "fecha_inicio", "fecha_fin", "motivo_consulta"])},
+    "Condition": {"nodo": q_nodo_evento("Condicion", ["nombre", "estado_clinico", "estado_verificacion", "categoria", "fecha_inicio", "fecha_resolucion", "severidad", "es_cronica"]), "encuentro": q_encuentro("REGISTRADA_EN"), "concepto": (q_concepto("ConceptoDiagnostico", "CODIFICADA_COMO"), "CODIFICADA_COMO")},
     "MedicationRequest": {"nodo": q_nodo_evento("Prescripcion", ["estado", "fecha_inicio", "fecha_fin", "dosis_texto", "dosis_valor", "dosis_unidad", "via", "frecuencia", "motivo_suspension", "es_PRN"]), "encuentro": q_encuentro("PRESCRITA_EN"), "concepto": (q_concepto("Farmaco", "DE_FARMACO", "nombre_generico"), "DE_FARMACO"), "causal": q_causal("TRATA")},
     "Procedure": {"nodo": q_nodo_evento("Procedimiento", ["nombre", "estado", "fecha", "duracion_min", "resultado", "urgente"]), "encuentro": q_encuentro("REALIZADO_EN"), "concepto": (q_concepto("ConceptoProcedimiento", "TIPO"), "TIPO"), "causal": q_causal("INDICADO_POR")},
-    "Observation": {"nodo": q_nodo_evento("Observacion", ["nombre", "valor_numero", "valor_texto", "valor_codigo", "valor_sistema", "unidad", "unidad_sistema", "unidad_codigo", "comparador", "fecha", "rango_ref_min", "rango_ref_max", "interpretacion"]), "encuentro": q_encuentro("TOMADA_EN"), "concepto": (q_concepto("ConceptoLab", "MIDE"), "MIDE")},
-    "AllergyIntolerance": {"nodo": q_nodo_evento("Alergia", ["tipo", "criticidad", "reaccion", "estado"]), "concepto": (q_concepto("Sustancia", "A_SUSTANCIA"), "A_SUSTANCIA")},
-    "Immunization": {"nodo": q_nodo_evento("Inmunizacion", ["nombre", "fecha", "dosis_numero", "lote", "estado"]), "concepto": (q_concepto("ConceptoProcedimiento", "TIPO"), "TIPO")},
+    "Observation": {"nodo": q_nodo_evento("Observacion", ["nombre", "valor_numero", "valor_texto", "valor_codigo", "valor_sistema", "unidad", "unidad_sistema", "unidad_codigo", "comparador", "categoria", "estado", "fecha", "rango_ref_min", "rango_ref_max", "interpretacion"]), "encuentro": q_encuentro("TOMADA_EN"), "concepto": (q_concepto("ConceptoLab", "MIDE"), "MIDE")},
+    "DiagnosticReport": {"nodo": q_nodo_evento("InformeDiagnostico", ["nombre", "estado", "categoria"]), "encuentro": q_encuentro("EMITIDO_EN"), "concepto": (q_concepto("ConceptoLab", "TIPO_PANEL"), "TIPO_PANEL")},
+    "AllergyIntolerance": {"nodo": q_nodo_evento("Alergia", ["tipo", "criticidad", "reaccion", "estado", "estado_verificacion"]), "concepto": (q_concepto("Sustancia", "A_SUSTANCIA"), "A_SUSTANCIA")},
+    "Immunization": {"nodo": q_nodo_evento("Inmunizacion", ["nombre", "fecha", "dosis_numero", "lote", "estado"]), "encuentro": q_encuentro("APLICADA_EN"), "concepto": (q_concepto("ConceptoVacuna", "DE_VACUNA"), "DE_VACUNA")},
 }
 
 
@@ -624,6 +711,9 @@ def escribir_relaciones(tx, filas_por_tipo):
             _run_batches(tx, Q_RAZON, razones)
             if config.get("causal"):
                 _run_batches(tx, config["causal"], razones)
+        resultados = [{"id": f["id"], **r} for f in filas for r in f.get("resultados", [])]
+        if resultados:
+            _run_batches(tx, Q_RESULTADO, resultados)
         motivos = [{**motivo, "nodo_id": f["id"]}
                    for f in filas for motivo in f.get("motivos", [])]
         if motivos:
@@ -637,7 +727,9 @@ def escribir_relaciones(tx, filas_por_tipo):
         codigos_componentes = [{**codigo, "nodo_id": c["id"]}
                                for c in componentes for codigo in c.get("codigos", [])]
         if codigos_componentes:
-            _run_batches(tx, q_concepto("ConceptoLab", "MIDE"), codigos_componentes)
+            _run_batches(tx, q_concepto("ConceptoLab", "MIDE",
+                                        label_origen="ComponenteObservacion"),
+                         codigos_componentes)
 
 
 def aplicar_schema(driver):
@@ -700,7 +792,7 @@ def cargar_recursos(directorio, fuente):
 def extraer_filas(wrappers, fuente, ref_to_key, resources_by_key):
     known_keys = set(resources_by_key)
     filas_por_tipo = defaultdict(list)
-    no_manejados, errores, unresolved = Counter(), [], []
+    no_manejados, omitidos, errores, unresolved = Counter(), Counter(), [], []
     for wrapper in wrappers:
         res = wrapper["resource"]
         tipo = res.get("resourceType")
@@ -722,12 +814,17 @@ def extraer_filas(wrappers, fuente, ref_to_key, resources_by_key):
         except Exception as exc:
             errores.append((wrapper["archivo"], tipo, res.get("id"), repr(exc)))
             continue
-        if fila and fila.get("id") and (tipo == "Patient" or fila.get("paciente_id")):
+        if fila is None:
+            # El handler decidió omitir el recurso (p. ej. DiagnosticReport de
+            # solo notas, sin result[]) — se cuenta, no es un error.
+            omitidos[tipo] += 1
+            continue
+        if fila.get("id") and (tipo == "Patient" or fila.get("paciente_id")):
             filas_por_tipo[tipo].append(fila)
         else:
             errores.append((wrapper["archivo"], tipo, res.get("id"),
                             "sin id o referencia de paciente resoluble"))
-    return filas_por_tipo, no_manejados, errores, unresolved
+    return filas_por_tipo, no_manejados, omitidos, errores, unresolved
 
 
 def main(argv=None):
@@ -743,7 +840,7 @@ def main(argv=None):
         args.directorio, args.source)
     if not archivos:
         parser.error(f"no hay bundles JSON en {args.directorio}")
-    filas, ignorados, errores, unresolved = extraer_filas(
+    filas, ignorados, omitidos, errores, unresolved = extraer_filas(
         wrappers, args.source, refs, resources)
 
     driver = GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
@@ -760,6 +857,10 @@ def main(argv=None):
     print("\n=== Recursos ingeridos ===")
     for tipo in ORDEN:
         print(f"  {tipo:22s} {len(filas.get(tipo, [])):>7d}")
+    if omitidos:
+        print("\n=== Omitidos por el handler (p. ej. informes de solo notas) ===")
+        for tipo, cantidad in omitidos.most_common():
+            print(f"  {tipo:22s} {cantidad:>7d}")
     print(f"\nVersiones/duplicados reemplazados: {duplicados}")
     print(f"Referencias no resueltas: {len(unresolved)}")
     for origen, ruta, valor, causa in unresolved[:20]:

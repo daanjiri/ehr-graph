@@ -49,6 +49,8 @@ en **PLAN.md** — es la fuente de verdad; ante cualquier duda de diseño, gana 
   (fase NLP futura) — la estratificación crónico/episódico se hace por
   duración/estado. Gestos de la timeline: rueda = zoom, arrastre en carriles =
   pan, arrastre en la banda del eje = brush (filtra el grafo por vigencia).
+- Paneles: chat y timeline son colapsables y recuerdan su estado localmente; la
+  timeline es redimensionable, usa carriles con scroll y mantiene el eje fijo.
 - Evidencia del chat: los endpoints /nodos/lote y /vecinos filtran por
   paciente server-side; evidencia de otro paciente no se pinta en el grafo.
 - Frontend: TypeScript + Tailwind 4 + tokens shadcn (tema oscuro único) +
@@ -99,6 +101,18 @@ y cómo se resolvió.)
    entra ni al top 20). Mitigación: la descripción de buscar_semantico instruye al
    agente a usar el término clínico en inglés o el cognado y reformular.
 10. **Tipos ignorados a propósito** (contados en cada ingesta): Claim,
-    ExplanationOfBenefit (facturación), DiagnosticReport, DocumentReference
-    (redundantes con Observation), CarePlan, CareTeam, SupplyDelivery, Device,
-    ImagingStudy, Provenance, MedicationAdministration (stub Fase 5).
+    ExplanationOfBenefit (facturación), DocumentReference (redundante con
+    Observation), CarePlan, CareTeam, SupplyDelivery, Device, ImagingStudy,
+    Provenance, MedicationAdministration (stub Fase 5). **DiagnosticReport ya
+    se ingiere parcialmente**: los que traen `result[]` (~14/77 por bundle, los
+    paneles de laboratorio) → `:InformeDiagnostico:Evento` con
+    INCLUYE_RESULTADO a sus Observations; los de solo notas (`presentedForm`)
+    se omiten y se cuentan aparte en el resumen.
+11. **`Observation.category` trae 5 valores en Synthea** (laboratory,
+    vital-signs, survey, social-history, procedure) → propiedad `categoria` y
+    prefijo del texto_descriptivo vía dict `CATEGORIA_OBS` (un PHQ-9 es
+    "Cuestionario/escala", no "Lab"). `Condition.category` distingue
+    encounter-diagnosis de problem-list-item.
+12. **`Immunization.encounter` sí existe en Synthea** → arista APLICADA_EN;
+    `vaccineCode` es CVX, no SNOMED → concepto propio `:ConceptoVacuna`
+    (antes se etiquetaba mal como :ConceptoProcedimiento).

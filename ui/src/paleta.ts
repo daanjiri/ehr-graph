@@ -14,6 +14,7 @@ export const COLOR_TIPO: Record<string, string> = {
   Condicion: "#e66767", // rojo
   Alergia: "#d55181", // magenta
   Observacion: "#d95926", // naranja
+  InformeDiagnostico: "#d95926", // mismo hue que Observacion (misma familia clinica)
   Paciente: "#ffffff",
   Concepto: "#898781", // neutro (ConceptoDiagnostico/Lab/Procedimiento/Sustancia)
 };
@@ -40,6 +41,7 @@ const RADIO_TIPO: Record<string, number> = {
   Encuentro: 9,
   Procedimiento: 8,
   Inmunizacion: 8,
+  InformeDiagnostico: 9,
   Observacion: 7,
   Concepto: 6,
 };

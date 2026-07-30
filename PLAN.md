@@ -84,14 +84,19 @@ Nodos y sus propiedades específicas:
 **`:Paciente`** (NO lleva :Evento)
 - id (UNIQUE), nombre, sexo (`male|female|other|unknown`), fecha_nacimiento (date),
   fallecido (bool), fecha_fallecimiento (datetime|null)
+- Demografía US Core / cohortes: mrn (identifier tipo MR; SSN/licencias NO se
+  ingieren), raza, etnia, sexo_nacimiento (extensiones US Core), ciudad,
+  estado_region, pais (address[0]), estado_civil
 
 **`:Encuentro:Evento`** — el hub temporal
 - tipo (display del coding: ambulatorio/urgencias/hospitalización...),
+  clase_codigo (v3-ActCode crudo: AMB/EMER/IMP...),
   fecha_inicio (datetime), fecha_fin (datetime|null), motivo_consulta (string)
 
 **`:Condicion:Evento`**
 - nombre (display SNOMED), estado_clinico (`active|recurrence|remission|resolved`),
   estado_verificacion (`unconfirmed|provisional|confirmed|refuted`),
+  categoria (`encounter-diagnosis|problem-list-item`|null),
   fecha_inicio (inicio clínico), fecha_resolucion (datetime|null),
   severidad (string|null), es_cronica (bool|null)
 
@@ -107,12 +112,20 @@ Nodos y sus propiedades específicas:
 
 **`:Observacion:Evento`**
 - nombre (display LOINC), valor (number|string), unidad (string, UCUM),
-  fecha (momento de la toma), rango_ref_min/max (number|null),
-  interpretacion (`normal|high|low|critical`|null)
+  categoria (`laboratory|vital-signs|survey|social-history|procedure`|null —
+  gobierna el prefijo del texto_descriptivo: un survey NO es "Lab"),
+  estado (`final|preliminary|amended`...), fecha (momento de la toma),
+  rango_ref_min/max (number|null), interpretacion (`normal|high|low|critical`|null)
+
+**`:InformeDiagnostico:Evento`** — panel de laboratorio (DiagnosticReport con result[])
+- nombre (display LOINC del panel), estado (status), categoria (LAB...).
+  Solo se ingieren los DiagnosticReport con `result[]`; los de solo notas
+  (`presentedForm`) se omiten y se cuentan en el resumen de la ingesta.
 
 **`:Alergia:Evento`**
 - tipo (`allergy|intolerance`), criticidad (`low|high|unable-to-assess`),
-  reaccion (string|null), estado (`active|inactive|refuted`)
+  reaccion (string|null), estado (`active|inactive|refuted`),
+  estado_verificacion (`unconfirmed|confirmed|refuted`|null)
 
 **`:Inmunizacion:Evento`**
 - nombre, fecha, dosis_numero (int|null), lote (string|null), estado
@@ -128,7 +141,11 @@ Nodos y sus propiedades específicas:
 | `:Farmaco` | codigo (RxNorm) | nombre_generico, sistema |
 | `:ConceptoLab` | codigo (LOINC) | nombre, sistema |
 | `:ConceptoProcedimiento` | codigo (SNOMED) | nombre |
+| `:ConceptoVacuna` | codigo (CVX) | nombre |
 | `:Sustancia` | codigo | nombre (para alergias) |
+
+(La clave real de todos los conceptos es la compuesta `(sistema, codigo)` —
+identidad de un Coding FHIR; ver schema.cypher.)
 
 Relaciones DENTRO de la capa de conceptos (fase 6, opcional):
 - `(:ConceptoDiagnostico)-[:ES_UN]->(:ConceptoDiagnostico)` — jerarquía SNOMED
@@ -148,6 +165,9 @@ Relaciones DENTRO de la capa de conceptos (fase 6, opcional):
 | `PRESCRITA_EN` | :Prescripcion → :Encuentro | `encounter` |
 | `REALIZADO_EN` | :Procedimiento → :Encuentro | `encounter` |
 | `TOMADA_EN` | :Observacion → :Encuentro | `encounter` |
+| `APLICADA_EN` | :Inmunizacion → :Encuentro | `encounter` |
+| `EMITIDO_EN` | :InformeDiagnostico → :Encuentro | `encounter` |
+| `INCLUYE_RESULTADO` | :InformeDiagnostico → :Observacion | `result[]` (con `fhir_path`) |
 
 ### 5.2 Vínculo a conceptos (obligatorias)
 
@@ -157,6 +177,8 @@ Relaciones DENTRO de la capa de conceptos (fase 6, opcional):
 | `DE_FARMACO` | :Prescripcion → :Farmaco | `medicationCodeableConcept.coding[0]` |
 | `MIDE` | :Observacion → :ConceptoLab | `code.coding[0]` |
 | `TIPO` | :Procedimiento → :ConceptoProcedimiento | `code.coding[0]` |
+| `DE_VACUNA` | :Inmunizacion → :ConceptoVacuna | `vaccineCode` (CVX) |
+| `TIPO_PANEL` | :InformeDiagnostico → :ConceptoLab | `code` (LOINC del panel) |
 | `A_SUSTANCIA` | :Alergia → :Sustancia | `code.coding[0]` |
 
 ### 5.3 Causales (el corazón del grafo)
@@ -187,6 +209,7 @@ confianza: float 0–1}`. En la ingesta desde FHIR: siempre `explicita, 1.0`.
 | Prescripcion | `authoredOn` | fecha del encuentro |
 | Procedimiento | `performedPeriod.start` | `performedDateTime` |
 | Observacion | `effectiveDateTime` | `issued` |
+| InformeDiagnostico | `effectiveDateTime` | `issued` |
 | Inmunizacion | `occurrenceDateTime` | — |
 | Alergia | `recordedDate` | — |
 
@@ -301,6 +324,12 @@ V8  (tras semantica.py) count(:Evento donde embedding IS NOT NULL) == count con 
 V9  buscar_semantico("heart problems") devuelve >0 resultados con score > 0.3
 V10 Query de intervalo: medicación activa a mitad de la historia de un
     paciente devuelve solo rx con fecha_inicio <= X y (fin null o >= X)
+V11 >95% de :Observacion tiene categoria (laboratory/vital-signs/survey/...)
+V12 >95% de :Inmunizacion tiene arista APLICADA_EN a su Encuentro
+V13 count(:ConceptoVacuna) > 0 y ninguna :Inmunizacion apunta a
+    :ConceptoProcedimiento (las vacunas dejaron de colarse ahí)
+V14 count(:InformeDiagnostico) > 0 y todos tienen >=1 INCLUYE_RESULTADO
+V15 >90% de :Paciente tiene mrn y raza (demografía US Core ingerida)
 ```
 
 ---
@@ -383,13 +412,14 @@ V10 Query de intervalo: medicación activa a mitad de la historia de un
 - `fecha_fin` viaja ahora en los nodos del grafo (`fecha_resolucion` de
   Condicion / `fecha_fin` de Encuentro, normalizadas) para calcular vigencia
   en el cliente.
-- Panel inferior plegable (~42%): capas por duración clínica (metáfora HNSW,
+- Panel inferior plegable y redimensionable: capas por duración clínica (metáfora HNSW,
   crónico arriba → puntual abajo): Condiciones = barras inicio→resolución/hoy
   con lane-packing (hueco = resuelta); Prescripciones = barras activas→hoy /
   ticks puntuales para completed (honesto con la limitación #5: Synthea no
   exporta fin de prescripción); Encuentros = puntos clicables (expanden en el
   grafo); densidad mensual apilada de Observación/Procedimiento/Inmunización/
-  Alergia. Gestos: rueda = zoom horizontal, arrastre en el eje = brush.
+  Alergia. Los carriles conservan una altura mínima con scroll vertical y el
+  eje/brush permanece fijo. Gestos: rueda = zoom horizontal, arrastre en el eje = brush.
 - Scrubber compartido: `rangoTiempo` en el store (throttle rAF) +
   `vigenteEn(nodo, rango)` puro (ui/src/tiempo.ts); el grafo atenúa lo no
   vigente SOLO con clase CSS `.fuera-de-tiempo` (sin re-join). Prioridades:

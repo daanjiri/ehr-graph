@@ -6,8 +6,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ingest import (build_texto, campos_valor, code_only, coding, codings,
-                    dosis_desde_instruccion, fila_observation, norm_date, norm_dt,
+from ingest import (URL_RAZA, URL_SEXO_NACIMIENTO, _extension_texto, _mrn,
+                    build_texto, campos_valor, code_only, coding, codings,
+                    dosis_desde_instruccion, fila_condition, fila_diagnostic_report,
+                    fila_immunization, fila_observation, norm_date, norm_dt,
                     ref_id, resolver_ref, resource_key, valor_observacion)
 
 
@@ -246,3 +248,147 @@ def test_fila_observation_preserva_componentes_tipados():
     assert fila["id"] == key and fila["fhir_id"] == "o1"
     assert fila["componentes"][0]["valor_numero"] == 120
     assert fila["componentes"][0]["codigos"][0]["codigo"] == "8480-6"
+
+
+# --- demografía US Core del Paciente ---
+
+def test_extension_texto_us_core_race():
+    res = {"extension": [{
+        "url": URL_RAZA,
+        "extension": [
+            {"url": "ombCategory", "valueCoding": {"code": "2106-3", "display": "White"}},
+            {"url": "text", "valueString": "White"},
+        ],
+    }]}
+    assert _extension_texto(res, URL_RAZA) == "White"
+
+
+def test_extension_texto_value_code_plano():
+    res = {"extension": [{"url": URL_SEXO_NACIMIENTO, "valueCode": "F"}]}
+    assert _extension_texto(res, URL_SEXO_NACIMIENTO) == "F"
+    assert _extension_texto(res, URL_RAZA) is None
+    assert _extension_texto({}, URL_RAZA) is None
+
+
+def test_mrn_por_tipo_mr_ignora_ssn():
+    res = {"identifier": [
+        {"value": "999-99-9999", "type": {"coding": [{"code": "SS"}]}},
+        {"value": "abc-mrn-1", "type": {"coding": [{"code": "MR"}]}},
+    ]}
+    assert _mrn(res) == "abc-mrn-1"
+    assert _mrn({}) is None
+
+
+# --- categorías de Observation y Condition ---
+
+def _ctx_evento(key, extra_keys=(), ref_to_key=None):
+    claves = {"fuente|Patient/p1", key, *extra_keys}
+    return {
+        "source": "fuente", "current_key": key, "current_full_url": None,
+        "resources_by_key": {}, "known_keys": claves,
+        "ref_to_key": {"Patient/p1": "fuente|Patient/p1", **(ref_to_key or {})},
+        "contained_refs": {}, "unresolved": [],
+    }
+
+
+def test_fila_observation_survey_no_es_lab():
+    ctx = _ctx_evento("fuente|Observation/o2")
+    res = {
+        "resourceType": "Observation", "id": "o2", "status": "final",
+        "subject": {"reference": "Patient/p1"},
+        "effectiveDateTime": "2024-01-01T10:00:00Z",
+        "category": [{"coding": [{"code": "survey",
+                                  "system": "http://terminology.hl7.org/CodeSystem/observation-category"}]}],
+        "code": {"coding": [{"system": "http://loinc.org", "code": "44249-1",
+                              "display": "PHQ-9 quick depression assessment panel"}]},
+        "valueQuantity": {"value": 3, "unit": "{score}"},
+    }
+    fila = fila_observation(res, ctx)
+    assert fila["categoria"] == "survey"
+    assert fila["estado"] == "final"
+    assert fila["texto_descriptivo"].startswith("Cuestionario/escala:")
+
+
+def test_fila_observation_sin_categoria_cae_a_lab():
+    ctx = _ctx_evento("fuente|Observation/o3")
+    res = {
+        "resourceType": "Observation", "id": "o3", "status": "final",
+        "subject": {"reference": "Patient/p1"},
+        "effectiveDateTime": "2024-01-01T10:00:00Z",
+        "code": {"coding": [{"system": "http://loinc.org", "code": "2093-3",
+                              "display": "Total Cholesterol"}]},
+        "valueQuantity": {"value": 180, "unit": "mg/dL"},
+    }
+    fila = fila_observation(res, ctx)
+    assert fila["categoria"] is None
+    assert fila["texto_descriptivo"].startswith("Lab/medicion:")
+
+
+def test_fila_condition_categoria():
+    ctx = _ctx_evento("fuente|Condition/c9")
+    res = {
+        "resourceType": "Condition", "id": "c9",
+        "subject": {"reference": "Patient/p1"},
+        "onsetDateTime": "2020-01-01T00:00:00Z",
+        "clinicalStatus": {"coding": [{"code": "active"}]},
+        "category": [{"coding": [{"code": "encounter-diagnosis",
+                                  "system": "http://terminology.hl7.org/CodeSystem/condition-category"}]}],
+        "code": {"coding": [{"system": "http://snomed.info/sct", "code": "44054006",
+                              "display": "Diabetes mellitus type 2"}]},
+    }
+    assert fila_condition(res, ctx)["categoria"] == "encounter-diagnosis"
+
+
+# --- Inmunización: encuentro + ConceptoVacuna ---
+
+def test_fila_immunization_encuentro_y_concepto_vacuna():
+    ctx = _ctx_evento("fuente|Immunization/i1", extra_keys={"fuente|Encounter/e1"},
+                      ref_to_key={"Encounter/e1": "fuente|Encounter/e1"})
+    res = {
+        "resourceType": "Immunization", "id": "i1", "status": "completed",
+        "patient": {"reference": "Patient/p1"},
+        "encounter": {"reference": "Encounter/e1"},
+        "occurrenceDateTime": "2021-11-01T09:00:00Z",
+        "vaccineCode": {"coding": [{"system": "http://hl7.org/fhir/sid/cvx",
+                                     "code": "140", "display": "Influenza, seasonal"}]},
+    }
+    fila = fila_immunization(res, ctx)
+    assert fila["encuentro_id"] == "fuente|Encounter/e1"
+    assert fila["codigos"][0]["concepto_id"].startswith("ConceptoVacuna|")
+
+
+# --- DiagnosticReport: paneles con result[], notas se omiten ---
+
+def test_fila_diagnostic_report_panel_con_resultados():
+    ctx = _ctx_evento(
+        "fuente|DiagnosticReport/dr1",
+        extra_keys={"fuente|Observation/o1", "fuente|Observation/o2"},
+        ref_to_key={"Observation/o1": "fuente|Observation/o1",
+                    "Observation/o2": "fuente|Observation/o2"})
+    res = {
+        "resourceType": "DiagnosticReport", "id": "dr1", "status": "final",
+        "subject": {"reference": "Patient/p1"},
+        "effectiveDateTime": "2023-05-05T08:00:00Z",
+        "category": [{"coding": [{"code": "LAB"}]}],
+        "code": {"coding": [{"system": "http://loinc.org", "code": "57698-3",
+                              "display": "Lipid panel with direct LDL"}]},
+        "result": [{"reference": "Observation/o1"}, {"reference": "Observation/o2"}],
+    }
+    fila = fila_diagnostic_report(res, ctx)
+    assert fila["nombre"] == "Lipid panel with direct LDL"
+    assert fila["categoria"] == "LAB"
+    assert [r["dest_id"] for r in fila["resultados"]] == [
+        "fuente|Observation/o1", "fuente|Observation/o2"]
+    assert fila["texto_descriptivo"].startswith("Informe diagnostico:")
+
+
+def test_fila_diagnostic_report_solo_notas_se_omite():
+    ctx = _ctx_evento("fuente|DiagnosticReport/dr2")
+    res = {
+        "resourceType": "DiagnosticReport", "id": "dr2", "status": "final",
+        "subject": {"reference": "Patient/p1"},
+        "effectiveDateTime": "2023-05-05T08:00:00Z",
+        "code": {"coding": [{"code": "34117-2", "display": "History and physical note"}]},
+        "presentedForm": [{"contentType": "text/plain", "data": "..."}],
+    }
+    assert fila_diagnostic_report(res, ctx) is None

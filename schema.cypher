@@ -22,6 +22,8 @@ CREATE CONSTRAINT sustancia IF NOT EXISTS
 FOR (s:Sustancia) REQUIRE (s.sistema, s.codigo) IS UNIQUE;
 CREATE CONSTRAINT concepto_motivo IF NOT EXISTS
 FOR (c:ConceptoMotivo) REQUIRE (c.sistema, c.codigo) IS UNIQUE;
+CREATE CONSTRAINT concepto_vacuna IF NOT EXISTS
+FOR (v:ConceptoVacuna) REQUIRE (v.sistema, v.codigo) IS UNIQUE;
 
 // Consultas temporales y de estado.
 CREATE INDEX evento_fecha IF NOT EXISTS

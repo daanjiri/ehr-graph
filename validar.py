@@ -1,9 +1,9 @@
-"""validar.py — criterios de aceptación automatizados V1–V10 (PLAN.md §11).
+"""validar.py — criterios de aceptación automatizados V1–V15 (PLAN.md §11).
 
 Uso:
-  uv run python validar.py             # V1–V10 completo
-  uv run python validar.py --fase 1    # solo V1–V7 (antes de semantica.py)
-  uv run python validar.py --fase 4    # V1–V10 + query de farmacovigilancia
+  uv run python validar.py             # V1–V15 completo
+  uv run python validar.py --fase 1    # solo V1–V7 + V11–V15 (antes de semantica.py)
+  uv run python validar.py --fase 4    # V1–V15 + query de farmacovigilancia
 
 Sale con código != 0 si alguna verificación falla.
 Imprime counts por label (útil para comparar antes/después de una re-ingesta).
@@ -84,6 +84,43 @@ def validar_fase1(s):
     check("V7  timeline < 200ms (2a ejecucion)", ms < 200, f"({ms:.0f} ms)")
 
 
+def validar_fidelidad(s):
+    """V11-V15: campos FHIR recuperados (categorías, vacunas, paneles, demografía)."""
+    n_obs = uno(s, "MATCH (o:Observacion) RETURN count(o)")
+    con_cat = uno(s, "MATCH (o:Observacion) WHERE o.categoria IS NOT NULL RETURN count(o)")
+    pct = 100 * con_cat / n_obs if n_obs else 0
+    check("V11 >95% de :Observacion con categoria", pct > 95, f"({pct:.1f}%)")
+
+    n_inm = uno(s, "MATCH (i:Inmunizacion) RETURN count(i)")
+    con_enc = uno(s, "MATCH (:Inmunizacion)-[:APLICADA_EN]->(:Encuentro) RETURN count(*)")
+    pct = 100 * con_enc / n_inm if n_inm else 0
+    check("V12 >95% de :Inmunizacion con APLICADA_EN", pct > 95,
+          f"({con_enc}/{n_inm})")
+
+    n_vac = uno(s, "MATCH (v:ConceptoVacuna) RETURN count(v)")
+    mal = uno(s, "MATCH (:Inmunizacion)-->(c:ConceptoProcedimiento) RETURN count(c)")
+    check("V13 vacunas en :ConceptoVacuna, no :ConceptoProcedimiento",
+          n_vac > 0 and mal == 0, f"({n_vac} vacunas, {mal} mal etiquetadas)")
+
+    n_inf = uno(s, "MATCH (i:InformeDiagnostico) RETURN count(i)")
+    sin_res = uno(s, """
+        MATCH (i:InformeDiagnostico)
+        WHERE NOT (i)-[:INCLUYE_RESULTADO]->(:Observacion)
+        RETURN count(i)
+    """)
+    check("V14 :InformeDiagnostico con >=1 INCLUYE_RESULTADO",
+          n_inf > 0 and sin_res == 0, f"({n_inf} informes, {sin_res} sin resultados)")
+
+    n_pac = uno(s, "MATCH (p:Paciente) RETURN count(p)")
+    con_demo = uno(s, """
+        MATCH (p:Paciente)
+        WHERE p.mrn IS NOT NULL AND p.raza IS NOT NULL
+        RETURN count(p)
+    """)
+    pct = 100 * con_demo / n_pac if n_pac else 0
+    check("V15 >90% de :Paciente con mrn y raza", pct > 90, f"({pct:.1f}%)")
+
+
 def validar_fase2(s):
     s.run("CALL db.awaitIndexes()")
     con_emb = uno(s, "MATCH (e:Evento) WHERE e.embedding IS NOT NULL RETURN count(e)")
@@ -152,6 +189,7 @@ def main():
         with driver.session() as s:
             print("=== Validación ===")
             validar_fase1(s)
+            validar_fidelidad(s)
             if fase != "1":
                 validar_fase2(s)
                 validar_v10(s)
