@@ -114,7 +114,7 @@ Console y volver a comprobar `/api/ready`.
 
 - Abrir la UI y cargar la lista de pacientes, el grafo y la línea temporal.
 - Enviar una pregunta y confirmar eventos SSE, tool use y evidencia resaltada.
-- Comprobar que el cuarto mensaje diario desde el mismo cliente devuelve 429.
+- Comprobar que el mensaje 21 del día desde el mismo cliente devuelve 429.
 - Dejar dormir Railway y confirmar que la UI vuelve a responder y que el primer
   chat carga el modelo sin descargar archivos de Hugging Face.
 - Revisar que Railway no contenga volúmenes Neo4j y que Git no rastree dumps,

@@ -142,6 +142,7 @@ def test_reservar_construye_periodos_sin_ip():
     assert resultado["permitido"] is True
     assert driver.sesion.parametros["global_key"] == "global:2026-07"
     assert driver.sesion.parametros["client_key"] == "cliente:2026-07-30:hash-seguro"
+    assert driver.sesion.parametros["client_limit"] == 20
 
 
 def test_health_no_depende_de_servicios_externos():
