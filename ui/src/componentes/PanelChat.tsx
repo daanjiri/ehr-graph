@@ -74,6 +74,11 @@ function Burbuja({ mensaje }: { mensaje: Mensaje }) {
           mensaje.error && "border border-destructive/50",
         )}
       >
+        {!esUsuario && mensaje.modelo && (
+          <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {mensaje.modelo.nombre}
+          </p>
+        )}
         {mensaje.partes.map((parte, i) =>
           parte.tipo === "texto" ? (
             esUsuario ? (
@@ -103,6 +108,11 @@ export function PanelChat({ colapsado = false }: { colapsado?: boolean }) {
   const mensajes = useEstado((s) => s.mensajes);
   const streamActivo = useEstado((s) => s.streamActivo);
   const pacienteId = useEstado((s) => s.pacienteId);
+  const modelos = useEstado((s) => s.modelos);
+  const modeloId = useEstado((s) => s.modeloId);
+  const errorModelos = useEstado((s) => s.errorModelos);
+  const cargarModelos = useEstado((s) => s.cargarModelos);
+  const seleccionarModelo = useEstado((s) => s.seleccionarModelo);
   const enviarMensaje = useEstado((s) => s.enviarMensaje);
   const abortarStream = useEstado((s) => s.abortarStream);
   const alternarChat = useEstado((s) => s.alternarChat);
@@ -114,6 +124,10 @@ export function PanelChat({ colapsado = false }: { colapsado?: boolean }) {
   useEffect(() => {
     finRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [mensajes]);
+
+  useEffect(() => {
+    void cargarModelos();
+  }, [cargarModelos]);
 
   useEffect(() => {
     if (colapsado) return;
@@ -172,6 +186,33 @@ export function PanelChat({ colapsado = false }: { colapsado?: boolean }) {
         </button>
       </div>
 
+      <div className="border-b border-border px-4 py-2.5">
+        {errorModelos ? (
+          <div className="flex items-center gap-2 text-xs text-destructive" role="alert">
+            <CircleAlert className="size-3.5 shrink-0" />
+            <span>No se pudieron cargar los modelos</span>
+          </div>
+        ) : (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="shrink-0 font-medium">Modelo</span>
+            <select
+              value={modeloId ?? ""}
+              onChange={(e) => seleccionarModelo(e.target.value)}
+              disabled={!modeloId || streamActivo}
+              aria-label="Modelo de Claude"
+              className="h-8 min-w-0 flex-1 cursor-pointer rounded-md border border-input bg-card px-2 text-xs text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {!modeloId && <option value="">Cargando modelos…</option>}
+              {modelos.map((modelo) => (
+                <option key={modelo.id} value={modelo.id}>
+                  {modelo.nombre} · {modelo.descripcion}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
         {mensajes.length === 0 && (
           <div className="mt-8 space-y-2 text-center text-sm text-muted-foreground">
@@ -205,15 +246,25 @@ export function PanelChat({ colapsado = false }: { colapsado?: boolean }) {
           onChange={(e) => setTexto(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && enviar()}
           maxLength={500}
-          placeholder={pacienteId ? "Escribe tu pregunta…" : "Selecciona un paciente primero"}
-          disabled={!pacienteId || streamActivo}
+          placeholder={
+            errorModelos
+              ? "Modelos no disponibles"
+              : pacienteId
+                ? "Escribe tu pregunta…"
+                : "Selecciona un paciente primero"
+          }
+          disabled={!pacienteId || !modeloId || streamActivo || Boolean(errorModelos)}
         />
         {streamActivo ? (
           <Button variant="outline" size="icon" onClick={abortarStream} title="Detener">
             <Square className="size-3.5" />
           </Button>
         ) : (
-          <Button size="icon" onClick={enviar} disabled={!pacienteId || !texto.trim()}>
+          <Button
+            size="icon"
+            onClick={enviar}
+            disabled={!pacienteId || !modeloId || !texto.trim() || Boolean(errorModelos)}
+          >
             <Send className="size-4" />
           </Button>
         )}

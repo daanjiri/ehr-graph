@@ -39,6 +39,18 @@ export interface Paciente {
   fallecido?: boolean;
 }
 
+export interface ModeloAnthropic {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  nivel_costo: "bajo" | "medio" | "alto";
+}
+
+export interface CatalogoModelos {
+  predeterminado: string;
+  modelos: ModeloAnthropic[];
+}
+
 // --- Vista temporal (Fase 6b) ---
 
 export interface IntervaloCondicion {
@@ -92,6 +104,7 @@ export type Parte =
 export interface Mensaje {
   rol: "usuario" | "asistente";
   partes: Parte[];
+  modelo?: ModeloAnthropic;
   nodoIds?: string[]; // evidencia final del turno (para re-resaltar)
   enCurso?: boolean;
   error?: boolean;

@@ -1,6 +1,6 @@
 // Cliente de la API FastAPI (proxy de Vite: /api -> localhost:8000).
 
-import type { Grafo, Intervalos, Paciente } from "@/tipos";
+import type { CatalogoModelos, Grafo, Intervalos, Paciente } from "@/tipos";
 
 async function mensajeError(resp: Response): Promise<string> {
   try {
@@ -20,6 +20,10 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
 
 export function obtenerPacientes(): Promise<Paciente[]> {
   return json("/api/pacientes");
+}
+
+export function obtenerModelos(): Promise<CatalogoModelos> {
+  return json("/api/modelos");
 }
 
 export function obtenerGrafo(pid: string): Promise<Grafo> {
@@ -50,6 +54,7 @@ export interface PeticionChat {
   paciente_id: string;
   mensaje: string;
   sesion_id?: string;
+  modelo?: string;
 }
 
 /**

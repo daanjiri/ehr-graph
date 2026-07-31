@@ -8,10 +8,19 @@ import {
   obtenerGrafoCompleto,
   obtenerIntervalos,
   obtenerLote,
+  obtenerModelos,
   obtenerPacientes,
   obtenerVecinos,
 } from "@/api";
-import type { Arista, Grafo, Intervalos, Mensaje, NodoGrafo, Paciente } from "@/tipos";
+import type {
+  Arista,
+  Grafo,
+  Intervalos,
+  Mensaje,
+  ModeloAnthropic,
+  NodoGrafo,
+  Paciente,
+} from "@/tipos";
 import { claveLeyenda } from "@/paleta";
 import type { RangoTiempo } from "@/tiempo";
 
@@ -30,6 +39,9 @@ interface EstadoApp {
   streamActivo: boolean;
   abortCtrl: AbortController | null;
   sesiones: Record<string, string>; // pacienteId -> sesion_id
+  modelos: ModeloAnthropic[];
+  modeloId: string | null;
+  errorModelos: string | null;
 
   // preferencias puramente visuales (persistidas en localStorage)
   chatAbierto: boolean;
@@ -42,6 +54,8 @@ interface EstadoApp {
   rangoTiempo: RangoTiempo;
 
   cargarPacientes(): Promise<void>;
+  cargarModelos(): Promise<void>;
+  seleccionarModelo(id: string): void;
   seleccionarPaciente(id: string): Promise<void>;
   expandirNodo(id: string): Promise<void>;
   alternarGrafoCompleto(): Promise<void>;
@@ -123,6 +137,9 @@ export const useEstado = create<EstadoApp>((set, get) => ({
   streamActivo: false,
   abortCtrl: null,
   sesiones: {},
+  modelos: [],
+  modeloId: null,
+  errorModelos: null,
   chatAbierto: preferenciasIniciales.chatAbierto,
   intervalos: null,
   timelineAbierta: preferenciasIniciales.timelineAbierta,
@@ -132,6 +149,33 @@ export const useEstado = create<EstadoApp>((set, get) => ({
 
   async cargarPacientes() {
     set({ pacientes: await obtenerPacientes() });
+  },
+
+  async cargarModelos() {
+    try {
+      const catalogo = await obtenerModelos();
+      set((s) => ({
+        modelos: catalogo.modelos,
+        modeloId: catalogo.modelos.some((m) => m.id === s.modeloId)
+          ? s.modeloId
+          : catalogo.predeterminado,
+        errorModelos: null,
+      }));
+    } catch (error) {
+      set({
+        modelos: [],
+        modeloId: null,
+        errorModelos:
+          error instanceof Error ? error.message : "No se pudo cargar el catálogo de modelos",
+      });
+    }
+  },
+
+  seleccionarModelo(id) {
+    const { modelos, streamActivo } = get();
+    if (!streamActivo && modelos.some((modelo) => modelo.id === id)) {
+      set({ modeloId: id });
+    }
   },
 
   async seleccionarPaciente(id) {
@@ -264,10 +308,11 @@ export const useEstado = create<EstadoApp>((set, get) => ({
   },
 
   async enviarMensaje(texto) {
-    const { pacienteId, streamActivo, sesiones } = get();
-    if (!pacienteId || streamActivo || !texto.trim()) return;
+    const { pacienteId, streamActivo, sesiones, modeloId, modelos } = get();
+    if (!pacienteId || !modeloId || streamActivo || !texto.trim()) return;
     const ctrl = new AbortController();
     const idsTurno: string[] = [];
+    const modeloSeleccionado = modelos.find((modelo) => modelo.id === modeloId);
 
     const actualizarUltimo = (fn: (m: Mensaje) => Mensaje) =>
       set((s) => {
@@ -283,17 +328,26 @@ export const useEstado = create<EstadoApp>((set, get) => ({
       mensajes: [
         ...s.mensajes,
         { rol: "usuario", partes: [{ tipo: "texto", texto }] },
-        { rol: "asistente", partes: [], enCurso: true },
+        { rol: "asistente", partes: [], enCurso: true, modelo: modeloSeleccionado },
       ],
     }));
 
     try {
       await chatSSE(
-        { paciente_id: pacienteId, mensaje: texto, sesion_id: sesiones[pacienteId] },
+        {
+          paciente_id: pacienteId,
+          mensaje: texto,
+          sesion_id: sesiones[pacienteId],
+          modelo: modeloId,
+        },
         async (evento, datos) => {
           if (evento === "inicio") {
             const sesionId = datos.sesion_id as string;
             set((s) => ({ sesiones: { ...s.sesiones, [pacienteId]: sesionId } }));
+            const modeloEfectivo = modelos.find((modelo) => modelo.id === datos.modelo);
+            if (modeloEfectivo) {
+              actualizarUltimo((m) => ({ ...m, modelo: modeloEfectivo }));
+            }
           } else if (evento === "texto") {
             actualizarUltimo((m) => {
               const partes = [...m.partes];

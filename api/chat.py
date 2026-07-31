@@ -15,8 +15,15 @@ from pydantic import BaseModel, Field
 import agente
 from api.limites import direccion_cliente, hash_cliente, reservar
 from api.eventos import extraer_nodo_ids, recortar_historial, sse
-from config import (CHAT_LIMITE_DIARIO_CLIENTE, CHAT_LIMITE_MENSUAL_GLOBAL,
-                    CHAT_MAX_CHARS, CHAT_MAX_INTERCAMBIOS)
+from config import (
+    ANTHROPIC_MODEL,
+    CHAT_LIMITE_DIARIO_CLIENTE,
+    CHAT_LIMITE_MENSUAL_GLOBAL,
+    CHAT_MAX_CHARS,
+    CHAT_MAX_INTERCAMBIOS,
+    MODELOS_ANTHROPIC,
+    MODELOS_ANTHROPIC_POR_ID,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -28,6 +35,26 @@ class PeticionChat(BaseModel):
     paciente_id: str
     mensaje: str = Field(min_length=1, max_length=CHAT_MAX_CHARS)
     sesion_id: str | None = None
+    modelo: str | None = None
+
+
+@router.get("/modelos")
+def modelos():
+    return {
+        "predeterminado": ANTHROPIC_MODEL,
+        "modelos": [
+            {clave: valor for clave, valor in modelo.items()
+             if clave != "admite_esfuerzo"}
+            for modelo in MODELOS_ANTHROPIC
+        ],
+    }
+
+
+def resolver_modelo(modelo: str | None) -> str:
+    seleccionado = modelo or ANTHROPIC_MODEL
+    if seleccionado not in MODELOS_ANTHROPIC_POR_ID:
+        raise HTTPException(422, "Modelo no permitido")
+    return seleccionado
 
 
 def _sesion(peticion):
@@ -36,7 +63,11 @@ def _sesion(peticion):
     if s and s["paciente_id"] == peticion.paciente_id:
         return peticion.sesion_id, s
     sesion_id = str(uuid.uuid4())
-    SESIONES[sesion_id] = {"paciente_id": peticion.paciente_id, "mensajes": []}
+    SESIONES[sesion_id] = {
+        "paciente_id": peticion.paciente_id,
+        "mensajes": [],
+        "modelo": None,
+    }
     return sesion_id, SESIONES[sesion_id]
 
 
@@ -44,6 +75,8 @@ def _sesion(peticion):
 def chat(peticion: PeticionChat, request: Request):
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise HTTPException(503, "La demo de chat no está configurada")
+
+    modelo = resolver_modelo(peticion.modelo)
 
     mensaje = peticion.mensaje.strip()
     if not mensaje:
@@ -74,6 +107,9 @@ def chat(peticion: PeticionChat, request: Request):
         raise HTTPException(429, detalle)
 
     sesion_id, sesion = _sesion(peticion)
+    if sesion["modelo"] and sesion["modelo"] != modelo:
+        agente.limpiar_pensamiento_otro_modelo(sesion["mensajes"])
+    sesion["modelo"] = modelo
     sesion["mensajes"] = recortar_historial(
         sesion["mensajes"], CHAT_MAX_INTERCAMBIOS)
     mensajes = sesion["mensajes"]
@@ -84,11 +120,15 @@ def chat(peticion: PeticionChat, request: Request):
              f"herramientas salvo que el usuario pida explicitamente otro paciente.")
 
     def generar():
-        yield sse("inicio", {"sesion_id": sesion_id})
+        yield sse("inicio", {"sesion_id": sesion_id, "modelo": modelo})
         nodo_ids_turno = []
         try:
             eventos = agente.loop_agente_eventos(
-                mensajes, system_extra=extra, paciente_id=peticion.paciente_id)
+                mensajes,
+                system_extra=extra,
+                paciente_id=peticion.paciente_id,
+                modelo=modelo,
+            )
             for ev in eventos:
                 if ev["tipo"] == "texto":
                     yield sse("texto", {"delta": ev["delta"]})

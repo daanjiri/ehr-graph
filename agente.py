@@ -15,7 +15,15 @@ import sys
 import neo4j.time
 from neo4j import GraphDatabase
 
-from config import ANTHROPIC_MAX_TOKENS, ANTHROPIC_MODEL, NEO4J_AUTH, NEO4J_URI
+from config import (
+    ANTHROPIC_EFFORT,
+    ANTHROPIC_MAX_TOKENS,
+    ANTHROPIC_MODEL,
+    CHAT_MAX_RONDAS_HERRAMIENTAS,
+    MODELOS_ANTHROPIC_POR_ID,
+    NEO4J_AUTH,
+    NEO4J_URI,
+)
 from semantica import buscar_semantico
 
 MODELO_LLM = ANTHROPIC_MODEL
@@ -263,7 +271,27 @@ def acotar_entrada(nombre, entrada, paciente_id=None):
     return entrada
 
 
-def loop_agente_eventos(mensajes, system_extra=None, paciente_id=None):
+def limpiar_pensamiento_otro_modelo(mensajes):
+    """Retira razonamiento ligado a otro modelo sin perder el diálogo visible."""
+    for mensaje in mensajes:
+        if mensaje.get("role") != "assistant":
+            continue
+        contenido = mensaje.get("content")
+        if not isinstance(contenido, list):
+            continue
+        mensaje["content"] = [
+            bloque
+            for bloque in contenido
+            if (
+                bloque.get("type") if isinstance(bloque, dict)
+                else getattr(bloque, "type", None)
+            ) not in {"thinking", "redacted_thinking"}
+        ]
+
+
+def loop_agente_eventos(
+    mensajes, system_extra=None, paciente_id=None, modelo=None
+):
     """Loop tool-use manual como generador: muta `mensajes` in place y emite eventos.
 
     Eventos: {"tipo": "texto", "delta": str}                       texto en streaming
@@ -274,18 +302,34 @@ def loop_agente_eventos(mensajes, system_extra=None, paciente_id=None):
     import anthropic
     client = anthropic.Anthropic()
     system = SYSTEM if not system_extra else SYSTEM + "\n" + system_extra
+    modelo_efectivo = modelo or MODELO_LLM
+    configuracion_modelo = MODELOS_ANTHROPIC_POR_ID[modelo_efectivo]
+    extras = {}
+    if configuracion_modelo["admite_esfuerzo"]:
+        extras["output_config"] = {"effort": ANTHROPIC_EFFORT}
+    rondas_herramientas = 0
     while True:
         with client.messages.stream(
-            model=MODELO_LLM, max_tokens=ANTHROPIC_MAX_TOKENS, system=system,
-            tools=TOOLS, messages=mensajes,
+            model=modelo_efectivo,
+            max_tokens=ANTHROPIC_MAX_TOKENS,
+            system=system,
+            tools=TOOLS,
+            messages=mensajes,
+            **extras,
         ) as stream:
             for delta in stream.text_stream:
                 yield {"tipo": "texto", "delta": delta}
             respuesta = stream.get_final_message()
         if respuesta.stop_reason != "tool_use":
+            mensajes.append({"role": "assistant", "content": respuesta.content})
             yield {"tipo": "fin", "texto": "".join(
                 b.text for b in respuesta.content if b.type == "text")}
             return
+        if rondas_herramientas >= CHAT_MAX_RONDAS_HERRAMIENTAS:
+            raise RuntimeError(
+                "El agente alcanzó el límite de rondas de herramientas"
+            )
+        rondas_herramientas += 1
         # Append del contenido COMPLETO del assistant, luego TODOS los tool_result
         # del turno en UN solo mensaje user (puede haber tool calls en paralelo).
         mensajes.append({"role": "assistant", "content": respuesta.content})

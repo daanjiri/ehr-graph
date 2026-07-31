@@ -1,15 +1,22 @@
 """Pruebas de configuración y protecciones de la demo pública."""
 
+import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import anthropic
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from agente import acotar_entrada
-from api import operacion
-from api.chat import PeticionChat, chat
+import agente
+from agente import (
+    acotar_entrada,
+    limpiar_pensamiento_otro_modelo,
+    loop_agente_eventos,
+)
+from api import chat as chat_api, operacion
+from api.chat import PeticionChat, chat, modelos, resolver_modelo
 from api.limites import direccion_cliente, hash_cliente, reservar
 
 
@@ -49,6 +56,61 @@ class DriverFalso:
 def test_peticion_chat_limita_longitud():
     with pytest.raises(ValidationError):
         PeticionChat(paciente_id="p1", mensaje="x" * 501)
+
+
+def test_catalogo_modelos_es_cerrado_y_sonnet_es_predeterminado():
+    catalogo = modelos()
+    assert catalogo["predeterminado"] == "claude-sonnet-5"
+    assert [modelo["id"] for modelo in catalogo["modelos"]] == [
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-5",
+        "claude-opus-5",
+    ]
+    assert all("admite_esfuerzo" not in modelo for modelo in catalogo["modelos"])
+
+
+def test_modelo_arbitrario_es_rechazado():
+    with pytest.raises(HTTPException) as error:
+        resolver_modelo("claude-fable-5")
+    assert error.value.status_code == 422
+
+
+def test_cambiar_modelo_conserva_sesion():
+    chat_api.SESIONES.clear()
+    primera = PeticionChat(
+        paciente_id="p1", mensaje="hola", modelo="claude-sonnet-5"
+    )
+    sesion_id, _ = chat_api._sesion(primera)
+    segunda = PeticionChat(
+        paciente_id="p1",
+        mensaje="continúa",
+        sesion_id=sesion_id,
+        modelo="claude-opus-5",
+    )
+    sesion_continuada, _ = chat_api._sesion(segunda)
+    assert sesion_continuada == sesion_id
+
+
+def test_cambio_modelo_retira_solo_bloques_de_pensamiento():
+    texto = SimpleNamespace(type="text", text="respuesta")
+    herramienta = SimpleNamespace(type="tool_use", name="timeline")
+    mensajes = [
+        {
+            "role": "assistant",
+            "content": [
+                SimpleNamespace(type="thinking", thinking="resumen"),
+                SimpleNamespace(type="redacted_thinking"),
+                texto,
+                herramienta,
+            ],
+        },
+        {"role": "user", "content": "siguiente"},
+    ]
+
+    limpiar_pensamiento_otro_modelo(mensajes)
+
+    assert mensajes[0]["content"] == [texto, herramienta]
+    assert mensajes[1]["content"] == "siguiente"
 
 
 def test_hash_cliente_no_expone_direccion():
@@ -110,6 +172,131 @@ def test_chat_sin_api_key_devuelve_503(monkeypatch):
     with pytest.raises(HTTPException) as error:
         chat(peticion, request)
     assert error.value.status_code == 503
+
+
+def test_chat_informa_modelo_efectivo_en_sse(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "solo-prueba")
+    monkeypatch.setattr(chat_api.agente, "q", lambda *_args, **_kwargs: [{"nombre": "Ana"}])
+    monkeypatch.setattr(
+        chat_api,
+        "reservar",
+        lambda *_args, **_kwargs: {
+            "permitido": True,
+            "global_count": 1,
+            "client_count": 1,
+        },
+    )
+    monkeypatch.setattr(chat_api.agente, "driver", lambda: object())
+    monkeypatch.setattr(
+        chat_api.agente,
+        "loop_agente_eventos",
+        lambda *_args, **_kwargs: iter([{"tipo": "fin", "texto": "ok"}]),
+    )
+    chat_api.SESIONES.clear()
+    peticion = PeticionChat(
+        paciente_id="p1", mensaje="hola", modelo="claude-opus-5"
+    )
+    request = SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
+    respuesta = chat(peticion, request)
+
+    async def contenido():
+        partes = []
+        async for parte in respuesta.body_iterator:
+            partes.append(parte.decode() if isinstance(parte, bytes) else parte)
+        return "".join(partes)
+
+    cuerpo = asyncio.run(contenido())
+    assert '"modelo": "claude-opus-5"' in cuerpo
+
+
+class StreamFalso:
+    def __init__(self, respuesta, deltas=("ok",)):
+        self.respuesta = respuesta
+        self.text_stream = iter(deltas)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def get_final_message(self):
+        return self.respuesta
+
+
+class MensajesFalsos:
+    def __init__(self, respuestas):
+        self.respuestas = iter(respuestas)
+        self.llamadas = []
+
+    def stream(self, **parametros):
+        self.llamadas.append(parametros)
+        respuesta = next(self.respuestas)
+        deltas = () if respuesta.stop_reason == "tool_use" else ("ok",)
+        return StreamFalso(respuesta, deltas)
+
+
+def test_sonnet_recibe_esfuerzo_medium(monkeypatch):
+    respuesta = SimpleNamespace(
+        stop_reason="end_turn",
+        content=[SimpleNamespace(type="text", text="ok")],
+    )
+    mensajes_api = MensajesFalsos([respuesta])
+    monkeypatch.setattr(
+        anthropic,
+        "Anthropic",
+        lambda: SimpleNamespace(messages=mensajes_api),
+    )
+
+    historial = []
+    eventos = list(loop_agente_eventos(historial, modelo="claude-sonnet-5"))
+
+    assert eventos[-1] == {"tipo": "fin", "texto": "ok"}
+    assert mensajes_api.llamadas[0]["model"] == "claude-sonnet-5"
+    assert mensajes_api.llamadas[0]["output_config"] == {"effort": "medium"}
+    assert historial[-1] == {"role": "assistant", "content": respuesta.content}
+
+
+def test_haiku_no_recibe_parametro_esfuerzo(monkeypatch):
+    respuesta = SimpleNamespace(
+        stop_reason="end_turn",
+        content=[SimpleNamespace(type="text", text="ok")],
+    )
+    mensajes_api = MensajesFalsos([respuesta])
+    monkeypatch.setattr(
+        anthropic,
+        "Anthropic",
+        lambda: SimpleNamespace(messages=mensajes_api),
+    )
+
+    list(loop_agente_eventos([], modelo="claude-haiku-4-5-20251001"))
+
+    assert "output_config" not in mensajes_api.llamadas[0]
+
+
+def test_agente_limita_rondas_de_herramientas(monkeypatch):
+    respuestas = [
+        SimpleNamespace(
+            stop_reason="tool_use",
+            content=[
+                SimpleNamespace(
+                    type="tool_use", name="timeline", input={}, id=f"tool-{i}"
+                )
+            ],
+        )
+        for i in range(3)
+    ]
+    mensajes_api = MensajesFalsos(respuestas)
+    monkeypatch.setattr(
+        anthropic,
+        "Anthropic",
+        lambda: SimpleNamespace(messages=mensajes_api),
+    )
+    monkeypatch.setattr(agente, "CHAT_MAX_RONDAS_HERRAMIENTAS", 2)
+    monkeypatch.setattr(agente, "ejecutar_herramienta", lambda *_args: [])
+
+    with pytest.raises(RuntimeError, match="límite de rondas"):
+        list(loop_agente_eventos([], modelo="claude-sonnet-5"))
 
 
 @pytest.mark.parametrize(
