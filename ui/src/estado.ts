@@ -148,7 +148,18 @@ export const useEstado = create<EstadoApp>((set, get) => ({
   rangoTiempo: null,
 
   async cargarPacientes() {
-    set({ pacientes: await obtenerPacientes() });
+    const pacientes = await obtenerPacientes();
+    set({ pacientes });
+    // ?paciente=<id | fhir_id | nombre> abre ese paciente directamente (p. ej. al
+    // embeber la app en un iframe); ?paciente sin valor abre el primero.
+    const pedido = new URLSearchParams(window.location.search).get("paciente");
+    if (pedido === null || get().pacienteId || !pacientes.length) return;
+    const p = pedido.trim().toLowerCase();
+    const elegido =
+      pacientes.find((x) => x.id.toLowerCase() === p || x.fhir_id?.toLowerCase() === p) ??
+      (p ? pacientes.find((x) => x.nombre.toLowerCase().startsWith(p)) : undefined) ??
+      pacientes[0];
+    await get().seleccionarPaciente(elegido.id);
   },
 
   async cargarModelos() {
