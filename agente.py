@@ -33,10 +33,30 @@ ARISTAS_CAUSALES = "TRATA|INDICADO_POR|EVIDENCIA_DE|COMPLICACION_DE|MOTIVO_SUSPE
 _driver = None
 
 
+def opciones_conexion(uri: str) -> tuple[str, dict]:
+    """URI y opciones TLS del driver.
+
+    Aura firma con la raíz "SSL.com TLS RSA Root CA 2022", que falta en el
+    almacén del sistema de Debian bookworm (y de algunos Windows): con
+    `neo4j+s://` el driver falla con "Unable to retrieve routing information".
+    Se usa el bundle de certifi, que sí la incluye, sin relajar la verificación.
+    """
+    if uri.startswith("neo4j+s://") or uri.startswith("bolt+s://"):
+        import certifi
+        from neo4j import TrustCustomCAs
+
+        return uri.replace("+s://", "://", 1), {
+            "encrypted": True,
+            "trusted_certificates": TrustCustomCAs(certifi.where()),
+        }
+    return uri, {}
+
+
 def driver():
     global _driver
     if _driver is None:
-        _driver = GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
+        uri, opciones = opciones_conexion(NEO4J_URI)
+        _driver = GraphDatabase.driver(uri, auth=NEO4J_AUTH, **opciones)
     return _driver
 
 

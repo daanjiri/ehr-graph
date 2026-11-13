@@ -166,6 +166,29 @@ def test_keepalive_rechaza_token_incorrecto(monkeypatch):
     assert error.value.status_code == 401
 
 
+def test_keepalive_escribe_en_la_base(monkeypatch):
+    ejecutadas = []
+
+    class Sesion:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def run(self, cypher, **_params):
+            ejecutadas.append(cypher)
+            return SimpleNamespace(consume=lambda: None)
+
+    monkeypatch.setattr(operacion, "KEEPALIVE_TOKEN", "correcto")
+    monkeypatch.setattr(
+        operacion, "driver", lambda: SimpleNamespace(session=Sesion)
+    )
+    assert operacion.keepalive("Bearer correcto") == {"status": "ok"}
+    assert len(ejecutadas) == 1
+    assert "MERGE" in ejecutadas[0] and "SET" in ejecutadas[0]
+
+
 def test_chat_sin_api_key_devuelve_503(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     peticion = PeticionChat(paciente_id="p1", mensaje="hola")
@@ -318,3 +341,21 @@ def test_scope_del_chat_sobrescribe_paciente_del_modelo(herramienta):
         "paciente-seleccionado",
     )
     assert entrada["paciente_id"] == "paciente-seleccionado"
+
+
+def test_aura_usa_bundle_certifi():
+    import agente
+
+    uri, opciones = agente.opciones_conexion("neo4j+s://abc.databases.neo4j.io")
+    assert uri == "neo4j://abc.databases.neo4j.io"
+    assert opciones["encrypted"] is True
+    assert "trusted_certificates" in opciones
+
+
+def test_neo4j_local_sin_tls():
+    import agente
+
+    assert agente.opciones_conexion("bolt://localhost:7687") == (
+        "bolt://localhost:7687",
+        {},
+    )

@@ -9,6 +9,12 @@ from config import KEEPALIVE_TOKEN
 
 router = APIRouter()
 
+Q_KEEPALIVE = """
+MERGE (k:DemoUsage {key: 'keepalive'})
+ON CREATE SET k.tipo = 'keepalive'
+SET k.actualizado_en = datetime()
+"""
+
 
 @router.get("/health")
 def health():
@@ -32,6 +38,8 @@ def keepalive(authorization: str | None = Header(default=None)):
     esperado = f"Bearer {KEEPALIVE_TOKEN}"
     if not authorization or not secrets.compare_digest(authorization, esperado):
         raise HTTPException(401, "Credencial inválida")
+    # Escritura mínima e idempotente: AuraDB Free pausa instancias sin
+    # actividad de escritura; un `RETURN 1` (solo lectura) no basta.
     with driver().session() as sesion:
-        sesion.run("RETURN 1 AS ok").consume()
+        sesion.run(Q_KEEPALIVE).consume()
     return {"status": "ok"}
